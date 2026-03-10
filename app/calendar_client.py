@@ -7,15 +7,15 @@ import requests as http_requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from goog00250373leapiclient.discovery import build
+from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from app.config import GOOGLE_CREDENTIALS_FILE, GOOGLE_TOKEN_FILE, TIMEZONE
-00250373
+
 logger = logging.getLogger(__name__)
 
-SCOPES = ["https:00250373//www.googleapis.com/auth/calendar"]
-00250373
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
 _RAILWAY_GQL = "https://backboard.railway.app/graphql/v2"
 
 
