@@ -21,7 +21,7 @@ async def _handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Run the (synchronous) orchestrator in a thread so we don't block the event loop.
     try:
-        reply = await asyncio.to_thread(process_message, text)
+        reply = await asyncio.to_thread(process_message, text, chat_id)
     except Exception as exc:
         logger.error("Unhandled error in process_message: %s", exc)
         reply = "Something went wrong on my end. Please try again."

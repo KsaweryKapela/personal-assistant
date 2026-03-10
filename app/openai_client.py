@@ -1,5 +1,6 @@
 import json
 import logging
+from collections import deque
 from datetime import datetime
 
 import pytz
@@ -7,12 +8,39 @@ from openai import OpenAI
 
 from app.calendar_client import add_attendees, create_event, delete_event, list_events, update_event
 from app.config import OPENAI_API_KEY, OPENAI_MODEL, TIMEZONE
+from app.profile_client import load_profile, save_profile
 
 logger = logging.getLogger(__name__)
 
 _client = OpenAI(api_key=OPENAI_API_KEY)
 
+# Per-chat conversation history: chat_id -> deque of {role, content} messages
+_HISTORY_LIMIT = 20  # messages (10 exchanges)
+_history: dict[int, deque] = {}
+
 _TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "update_user_profile",
+            "description": (
+                "Update the user's persistent profile. Call this whenever the user shares new "
+                "personal information: preferences, contacts (with email addresses), habits, "
+                "goals, or corrections to existing info. Rewrite only the relevant part and "
+                "return the full updated profile text."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "new_profile": {
+                        "type": "string",
+                        "description": "The complete updated profile text (not just the diff).",
+                    }
+                },
+                "required": ["new_profile"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -112,16 +140,21 @@ _TOOLS = [
     },
 ]
 
+def _update_user_profile(new_profile: str) -> dict:
+    return save_profile(new_profile)
+
+
 _TOOL_DISPATCH = {
     "list_events": list_events,
     "create_event": create_event,
     "delete_event": delete_event,
     "update_event": update_event,
     "add_attendees": add_attendees,
+    "update_user_profile": _update_user_profile,
 }
 
 
-def run_agent(user_message: str) -> str:
+def run_agent(user_message: str, chat_id: int = 0) -> str:
     """Run the calendar agent. Loops until the model stops calling tools."""
     tz = pytz.timezone(TIMEZONE)
     now = datetime.now(tz)
@@ -145,21 +178,33 @@ def run_agent(user_message: str) -> str:
     except Exception as exc:
         calendar_context = f"(Could not load today's events: {exc})"
 
+    profile = load_profile()
+
     system_prompt = (
-        f"You are a personal calendar assistant.\n"
-        f"Current date and time: {current_dt} (timezone: {TIMEZONE}).\n\n"
+        f"You are a personal assistant for the user described below.\n\n"
+        f"=== USER PROFILE ===\n{profile}\n\n"
+        f"=== CONTEXT ===\n"
+        f"Current date and time: {current_dt} (timezone: {TIMEZONE}).\n"
         f"{calendar_context}\n\n"
+        "=== INSTRUCTIONS ===\n"
         "Use the available tools to fulfil the user's request. "
         "Resolve relative dates (tomorrow, next Friday, etc.) to absolute YYYY-MM-DD. "
         "Use 24-hour HH:MM for times. "
         "If you need to find an event ID before acting on it, call list_events first. "
+        "When creating events involving known contacts, auto-add their emails as attendees. "
+        "When the user shares new personal info, preferences, or contacts (including email addresses), "
+        "call update_user_profile with the full updated profile text. "
         "After completing all actions, reply with a short, friendly confirmation."
     )
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_message},
-    ]
+    # Retrieve or initialise conversation history for this chat
+    if chat_id not in _history:
+        _history[chat_id] = deque(maxlen=_HISTORY_LIMIT)
+
+    history = _history[chat_id]
+    history.append({"role": "user", "content": user_message})
+
+    messages = [{"role": "system", "content": system_prompt}] + list(history)
 
     # Agentic loop
     while True:
@@ -174,7 +219,9 @@ def run_agent(user_message: str) -> str:
         messages.append(msg)
 
         if not msg.tool_calls:
-            return msg.content or "Done."
+            reply = msg.content or "Done."
+            history.append({"role": "assistant", "content": reply})
+            return reply
 
         for tc in msg.tool_calls:
             fn = _TOOL_DISPATCH.get(tc.function.name)
