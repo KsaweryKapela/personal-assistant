@@ -1,5 +1,8 @@
 """
-Entry point — starts the Telegram bot in long-polling mode.
+Entry point — starts the Telegram bot.
+
+Webhook mode (production):  set WEBHOOK_URL env var, e.g. https://my-app.railway.app
+Polling mode  (local dev):  leave WEBHOOK_URL unset
 
 Run with:
     python -m app.main
@@ -9,6 +12,7 @@ or:
 
 import logging
 
+from app.config import PORT, WEBHOOK_URL
 from app.telegram_bot import build_app
 
 logging.basicConfig(
@@ -24,9 +28,19 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    logger.info("Starting personal assistant bot (polling mode)...")
     app = build_app()
-    app.run_polling(allowed_updates=["message"])
+
+    if WEBHOOK_URL:
+        logger.info("Starting bot in webhook mode (url=%s, port=%d)...", WEBHOOK_URL, PORT)
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=WEBHOOK_URL,
+            allowed_updates=["message"],
+        )
+    else:
+        logger.info("Starting bot in polling mode (local dev)...")
+        app.run_polling(allowed_updates=["message"])
 
 
 if __name__ == "__main__":
