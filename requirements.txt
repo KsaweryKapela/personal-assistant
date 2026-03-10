@@ -1,5 +1,5 @@
 # Generated from pyproject.toml — use this if you prefer pip over uv
-python-telegram-bot>=21.0
+python-telegram-bot[webhooks]>=21.0
 openai>=1.30.0
 google-api-python-client>=2.130.0
 google-auth-httplib2>=0.2.0
