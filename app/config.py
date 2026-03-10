@@ -17,3 +17,5 @@ GOOGLE_CREDENTIALS_FILE: str = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials
 GOOGLE_TOKEN_FILE: str = os.getenv("GOOGLE_TOKEN_FILE", "token.json")
 TIMEZONE: str = os.getenv("TIMEZONE", "Europe/Warsaw")
 OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o")
+WEBHOOK_URL: str | None = os.getenv("WEBHOOK_URL")  # e.g. https://my-app.railway.app
+PORT: int = int(os.getenv("PORT", "8080"))
