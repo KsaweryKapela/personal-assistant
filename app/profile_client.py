@@ -7,33 +7,13 @@ logger = logging.getLogger(__name__)
 
 _RAILWAY_GQL = "https://backboard.railway.app/graphql/v2"
 
-_DEFAULT_PROFILE = """Name: Ksawery Kapela
-Age: 27
-Location: Kraków, Poland
-Profession: GenAI / ML engineer and developer (Python, cloud systems).
-Work style: Deep focus, minimal meetings, fast iterations, MVP-first. Prefers simple architectures.
-Stack: Python, LangChain, Transformers, TensorFlow/PyTorch, AWS.
-
-Health & fitness: Gym 3–4x/week, strength training. Weight ~82 kg, height 185 cm.
-Diet: High-protein — eggs, steak, skyr, cottage cheese, protein shakes. Simple, quick meals.
-
-Lifestyle: Walks, reading, music, gym, psychology, AI/tech, productivity, self-development.
-Relationship: Has a girlfriend, Wiktoria.
-
-Personality: Ambitious, analytical, pragmatic, creative, open-minded.
-Motto: "I will not live the life that I do not deserve."
-
-Contacts:
-- Wiktoria Siemaszko (girlfriend / Wika): wiktoria.siemaszko2503@gmail.com
-  Always invite her to calendar events that involve her.
-
-Assistant preferences: Help structure the day, schedule tasks, suggest learning resources,
-plan workouts, maintain healthy habits, optimise productivity. Be concise, direct, practical."""
-
 
 def load_profile() -> str:
-    """Return the current user profile. Reads from env var, falls back to default."""
-    return os.getenv("USER_PROFILE") or _DEFAULT_PROFILE
+    """Return the current user profile from the USER_PROFILE env var."""
+    profile = os.getenv("USER_PROFILE")
+    if not profile:
+        raise RuntimeError("Missing required environment variable: USER_PROFILE")
+    return profile
 
 
 def save_profile(new_profile: str) -> dict:
