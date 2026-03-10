@@ -3,17 +3,60 @@ import os
 from datetime import datetime, timedelta
 
 import pytz
+import requests as http_requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from goog00250373leapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from app.config import GOOGLE_CREDENTIALS_FILE, GOOGLE_TOKEN_FILE, TIMEZONE
-
+00250373
 logger = logging.getLogger(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SCOPES = ["https:00250373//www.googleapis.com/auth/calendar"]
+00250373
+_RAILWAY_GQL = "https://backboard.railway.app/graphql/v2"
+
+
+def _sync_token_to_railway(token_json: str) -> None:
+    """Push the refreshed token to Railway env vars so it survives redeployments."""
+    api_token = os.getenv("RAILWAY_API_TOKEN")
+    project_id = os.getenv("RAILWAY_PROJECT_ID")
+    environment_id = os.getenv("RAILWAY_ENVIRONMENT_ID")
+    service_id = os.getenv("RAILWAY_SERVICE_ID")
+
+    if not all([api_token, project_id, environment_id, service_id]):
+        return  # Not running on Railway or token not configured — skip silently
+
+    mutation = """
+    mutation variableUpsert($input: VariableUpsertInput!) {
+        variableUpsert(input: $input)
+    }
+    """
+    payload = {
+        "query": mutation,
+        "variables": {
+            "input": {
+                "projectId": project_id,
+                "environmentId": environment_id,
+                "serviceId": service_id,
+                "name": "GOOGLE_TOKEN_JSON",
+                "value": token_json,
+            }
+        },
+    }
+    try:
+        resp = http_requests.post(
+            _RAILWAY_GQL,
+            json=payload,
+            headers={"Authorization": f"Bearer {api_token}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        logger.info("Synced refreshed token to Railway env vars.")
+    except Exception as exc:
+        logger.warning("Could not sync token to Railway: %s", exc)
 
 
 def _get_service():
@@ -37,9 +80,11 @@ def _get_service():
             flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
 
+        token_json = creds.to_json()
         with open(GOOGLE_TOKEN_FILE, "w") as fh:
-            fh.write(creds.to_json())
+            fh.write(token_json)
         logger.info("Saved Google token to %s", GOOGLE_TOKEN_FILE)
+        _sync_token_to_railway(token_json)
 
     return build("calendar", "v3", credentials=creds)
 
