@@ -10,5 +10,5 @@ def process_message(text: str) -> str:
     try:
         return run_agent(text)
     except Exception as exc:
-        logger.error("Agent error: %s", exc)
+        logger.error("Agent error [%s]: %s", type(exc).__name__, exc, exc_info=True)
         return "Sorry, something went wrong. Please try again."
