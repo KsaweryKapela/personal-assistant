@@ -203,8 +203,12 @@ _TOOLS = [
                         "type": "string",
                         "description": "Optional note about why this was scheduled (for your own reference).",
                     },
+                    "name": {
+                        "type": "string",
+                        "description": "Short label for this job, e.g. 'gym check-in', 'evening reflection'. Required.",
+                    },
                 },
-                "required": ["message"],
+                "required": ["message", "name"],
             },
         },
     },
@@ -249,6 +253,7 @@ def _build_schedule_message(chat_id: int):
     """Return a closure that schedules a message for the given chat."""
     def schedule_message(
         message: str,
+        name: str,
         delay_minutes: int | None = None,
         send_at: str | None = None,
         context: str = "",
@@ -263,7 +268,7 @@ def _build_schedule_message(chat_id: int):
                 dt = tz.localize(dt)
         else:
             return {"ok": False, "error": "Provide either delay_minutes or send_at."}
-        return add_job(chat_id, message, dt, context)
+        return add_job(chat_id, message, dt, context, name)
     return schedule_message
 
 
@@ -306,7 +311,7 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
     pending = get_pending_jobs()
     if pending:
         pending_lines = "\n".join(
-            f"  [{j['send_at']}] {j['message']}" + (f" — {j['context']}" if j.get("context") else "")
+            f"  [{j.get('name', 'unnamed')}] {j['send_at']} — {j['message']}"
             for j in pending
         )
         scheduled_context = f"Scheduled check-ins:\n{pending_lines}"

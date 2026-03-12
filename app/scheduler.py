@@ -51,11 +51,12 @@ def _save_jobs() -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
-def add_job(chat_id: int, message: str, send_at: datetime, context: str = "") -> dict:
+def add_job(chat_id: int, message: str, send_at: datetime, context: str = "", name: str = "") -> dict:
     """Add a new scheduled message job."""
     job = {
         "id": str(uuid.uuid4()),
         "chat_id": chat_id,
+        "name": name,
         "message": message,
         "send_at": send_at.isoformat(),
         "context": context,
