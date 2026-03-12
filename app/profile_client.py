@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 
@@ -8,18 +9,18 @@ logger = logging.getLogger(__name__)
 _RAILWAY_GQL = "https://backboard.railway.app/graphql/v2"
 
 
-def load_profile() -> str:
-    """Return the current user profile from the USER_PROFILE env var."""
-    profile = os.getenv("USER_PROFILE")
-    if not profile:
+def load_profile() -> dict:
+    """Return the current user profile as a dict from the USER_PROFILE env var."""
+    raw = os.getenv("USER_PROFILE")
+    if not raw:
         raise RuntimeError("Missing required environment variable: USER_PROFILE")
-    return profile
+    return json.loads(raw)
 
 
-def save_profile(new_profile: str) -> dict:
-    """Persist the updated profile to file and Railway env var."""
-    # Update in-process env so the next load_profile() call in this session reflects the change
-    os.environ["USER_PROFILE"] = new_profile
+def save_profile(profile: dict) -> dict:
+    """Persist the updated profile dict to env and Railway."""
+    new_profile_str = json.dumps(profile, ensure_ascii=False)
+    os.environ["USER_PROFILE"] = new_profile_str
 
     api_token = os.getenv("RAILWAY_API_TOKEN")
     project_id = os.getenv("RAILWAY_PROJECT_ID")
@@ -43,7 +44,7 @@ def save_profile(new_profile: str) -> dict:
                 "environmentId": environment_id,
                 "serviceId": service_id,
                 "name": "USER_PROFILE",
-                "value": new_profile,
+                "value": new_profile_str,
             }
         },
     }

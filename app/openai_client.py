@@ -4,10 +4,11 @@ from collections import deque
 from datetime import datetime
 
 import pytz
+import requests as http_requests
 from openai import OpenAI
 
 from app.calendar_client import add_attendees, create_event, delete_event, list_events, update_event
-from app.config import OPENAI_API_KEY, OPENAI_MODEL, TIMEZONE
+from app.config import OPENAI_API_KEY, OPENAI_MODEL, TELEGRAM_BOT_TOKEN, TIMEZONE
 from app.profile_client import load_profile, save_profile
 
 logger = logging.getLogger(__name__)
@@ -24,20 +25,40 @@ _TOOLS = [
         "function": {
             "name": "update_user_profile",
             "description": (
-                "Update the user's persistent profile. Call this whenever the user shares new "
-                "personal information: preferences, contacts (with email addresses), habits, "
-                "goals, or corrections to existing info. Rewrite only the relevant part and "
-                "return the full updated profile text."
+                "Update the user's persistent profile JSON. Call this whenever the user shares new "
+                "personal information: preferences, contacts (with email addresses), habits, goals, "
+                "or corrections to existing info. Only add new fields or remove outdated ones — "
+                "never rewrite the whole profile. Pass the full updated profile object."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "new_profile": {
-                        "type": "string",
-                        "description": "The complete updated profile text (not just the diff).",
+                    "profile": {
+                        "type": "object",
+                        "description": (
+                            "The complete updated profile as a JSON object with category keys "
+                            "(e.g. personal, career, health, diet, lifestyle, relationship, "
+                            "contacts, personality, assistant_preferences). "
+                            "Only modify the relevant fields."
+                        ),
                     }
                 },
-                "required": ["new_profile"],
+                "required": ["profile"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_profile",
+            "description": (
+                "Send the user's full profile JSON as a formatted Telegram message. "
+                "Call this when the user asks to see their profile."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
             },
         },
     },
@@ -140,11 +161,30 @@ _TOOLS = [
     },
 ]
 
-def _update_user_profile(new_profile: str) -> dict:
-    return save_profile(new_profile)
+def _update_user_profile(profile: dict) -> dict:
+    return save_profile(profile)
 
 
-_TOOL_DISPATCH = {
+def _build_send_profile(chat_id: int):
+    """Return a closure that sends the current profile JSON to the given chat."""
+    def send_profile() -> dict:
+        profile = load_profile()
+        text = f"```json\n{json.dumps(profile, indent=2, ensure_ascii=False)}\n```"
+        try:
+            resp = http_requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return {"ok": True}
+        except Exception as exc:
+            logger.warning("Could not send profile via Telegram: %s", exc)
+            return {"ok": False, "error": str(exc)}
+    return send_profile
+
+
+_TOOL_DISPATCH_BASE = {
     "list_events": list_events,
     "create_event": create_event,
     "delete_event": delete_event,
@@ -182,7 +222,7 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
 
     system_prompt = (
         f"You are a personal assistant for the user described below.\n\n"
-        f"=== USER PROFILE ===\n{profile}\n\n"
+        f"=== USER PROFILE ===\n{json.dumps(profile, indent=2, ensure_ascii=False)}\n\n"
         f"=== CONTEXT ===\n"
         f"Current date and time: {current_dt} (timezone: {TIMEZONE}).\n"
         f"{calendar_context}\n\n"
@@ -193,9 +233,14 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
         "If you need to find an event ID before acting on it, call list_events first. "
         "When creating events involving known contacts, auto-add their emails as attendees. "
         "When the user shares new personal info, preferences, or contacts (including email addresses), "
-        "call update_user_profile with the full updated profile text. "
+        "call update_user_profile with the full updated profile JSON — only add or remove the relevant "
+        "fields, never rewrite unrelated parts. "
+        "When the user asks to see their profile, call send_profile. "
         "After completing all actions, reply with a short, friendly confirmation."
     )
+
+    # Build per-call dispatch table (includes chat_id-bound send_profile)
+    tool_dispatch = {**_TOOL_DISPATCH_BASE, "send_profile": _build_send_profile(chat_id)}
 
     # Retrieve or initialise conversation history for this chat
     if chat_id not in _history:
@@ -224,7 +269,7 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
             return reply
 
         for tc in msg.tool_calls:
-            fn = _TOOL_DISPATCH.get(tc.function.name)
+            fn = tool_dispatch.get(tc.function.name)
             if fn is None:
                 result = {"error": f"Unknown tool: {tc.function.name}"}
             else:
