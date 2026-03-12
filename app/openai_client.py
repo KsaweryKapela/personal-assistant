@@ -25,25 +25,38 @@ _TOOLS = [
         "function": {
             "name": "update_user_profile",
             "description": (
-                "Update the user's persistent profile JSON. Call this whenever the user shares new "
-                "personal information: preferences, contacts (with email addresses), habits, goals, "
-                "or corrections to existing info. Only add new fields or remove outdated ones — "
-                "never rewrite the whole profile. Pass the full updated profile object."
+                "Add, update, or delete a single field in the user's profile. "
+                "Call this whenever the user shares new personal info or asks to remove something. "
+                "Use action='set' to add or update, action='delete' to remove. "
+                "Omit 'key' with action='delete' to remove an entire category."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "profile": {
-                        "type": "object",
+                    "action": {
+                        "type": "string",
+                        "enum": ["set", "delete"],
+                        "description": "'set' to add/update a field, 'delete' to remove it.",
+                    },
+                    "category": {
+                        "type": "string",
                         "description": (
-                            "The complete updated profile as a JSON object with category keys "
-                            "(e.g. personal, career, health, diet, lifestyle, relationship, "
-                            "contacts, personality, assistant_preferences). "
-                            "Only modify the relevant fields."
+                            "Top-level profile category, e.g. 'personal', 'career', 'health', "
+                            "'diet', 'lifestyle', 'relationship', 'contacts', 'personality', "
+                            "'assistant_preferences'. A new category is created automatically."
                         ),
-                    }
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": (
+                            "Field name within the category. Omit only when deleting an entire category."
+                        ),
+                    },
+                    "value": {
+                        "description": "New value for the field (required for action='set'). Can be any JSON type.",
+                    },
                 },
-                "required": ["profile"],
+                "required": ["action", "category"],
             },
         },
     },
@@ -161,7 +174,19 @@ _TOOLS = [
     },
 ]
 
-def _update_user_profile(profile: dict) -> dict:
+def _update_user_profile(action: str, category: str, key: str | None = None, value=None) -> dict:
+    profile = load_profile()
+    if action == "set":
+        if key is None:
+            return {"ok": False, "error": "key is required for action='set'"}
+        if category not in profile or not isinstance(profile[category], dict):
+            profile[category] = {}
+        profile[category][key] = value
+    elif action == "delete":
+        if key is None:
+            profile.pop(category, None)
+        elif category in profile and isinstance(profile[category], dict):
+            profile[category].pop(key, None)
     return save_profile(profile)
 
 
@@ -233,8 +258,8 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
         "If you need to find an event ID before acting on it, call list_events first. "
         "When creating events involving known contacts, auto-add their emails as attendees. "
         "When the user shares new personal info, preferences, or contacts (including email addresses), "
-        "call update_user_profile with the full updated profile JSON — only add or remove the relevant "
-        "fields, never rewrite unrelated parts. "
+        "call update_user_profile once per changed field using action='set' or action='delete'. "
+        "Never pass the full profile — only the specific category, key, and value being changed. "
         "When the user asks to see their profile, call send_profile. "
         "After completing all actions, reply with a short, friendly confirmation."
     )
