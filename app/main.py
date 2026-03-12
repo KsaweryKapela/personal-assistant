@@ -12,7 +12,7 @@ or:
 
 import logging
 
-from app.config import PORT, WEBHOOK_URL
+from app.config import LOG_BOT_TOKEN, LOG_CHAT_ID, PORT, WEBHOOK_URL
 from app.scheduler import start as start_scheduler
 from app.telegram_bot import build_app
 
@@ -29,6 +29,13 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    if LOG_BOT_TOKEN and LOG_CHAT_ID:
+        from app.log_bot import setup as setup_log_bot
+        setup_log_bot(LOG_BOT_TOKEN, LOG_CHAT_ID)
+        logger.info("Telegram log bot enabled (chat_id=%s).", LOG_CHAT_ID)
+    else:
+        logger.info("LOG_BOT_TOKEN / LOG_CHAT_ID not set — Telegram logging disabled.")
+
     start_scheduler()
     app = build_app()
 
