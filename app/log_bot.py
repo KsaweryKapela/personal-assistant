@@ -46,11 +46,7 @@ class TelegramLogHandler(logging.Handler):
             try:
                 http_requests.post(
                     f"https://api.telegram.org/bot{self._token}/sendMessage",
-                    json={
-                        "chat_id": self._chat_id,
-                        "text": text[:_TELEGRAM_MAX],
-                        "parse_mode": "HTML",
-                    },
+                    json={"chat_id": self._chat_id, "text": text[:_TELEGRAM_MAX]},
                     timeout=10,
                 )
             except Exception:
@@ -58,12 +54,12 @@ class TelegramLogHandler(logging.Handler):
 
 
 def _format(record: logging.LogRecord) -> str:
+    import traceback
     prefix = _LEVEL_PREFIX.get(record.levelno, "📋 LOG")
-    lines = [f"{prefix}  <code>{record.name}</code>", record.getMessage()]
+    lines = [f"{prefix}  {record.name}", record.getMessage()]
     if record.exc_info:
-        import traceback
         tb = "".join(traceback.format_exception(*record.exc_info)).strip()
-        lines.append(f"<pre>{tb[:2000]}</pre>")
+        lines.append(tb[:2000])
     return "\n".join(lines)
 
 
