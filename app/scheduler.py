@@ -106,6 +106,12 @@ def _run() -> None:
         time.sleep(60)
 
 
+def get_pending_jobs() -> list[dict]:
+    """Return a snapshot of all pending jobs."""
+    with _lock:
+        return list(_jobs)
+
+
 def start() -> None:
     """Load persisted jobs and start the background thread. Call once at startup."""
     global _jobs

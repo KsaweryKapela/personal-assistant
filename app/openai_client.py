@@ -10,7 +10,7 @@ from openai import OpenAI
 from app.calendar_client import add_attendees, create_event, delete_event, list_events, update_event
 from app.config import OPENAI_API_KEY, OPENAI_MODEL, TELEGRAM_BOT_TOKEN, TIMEZONE
 from app.profile_client import load_profile, save_profile
-from app.scheduler import add_job
+from app.scheduler import add_job, get_pending_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -303,12 +303,23 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
 
     profile = load_profile()
 
+    pending = get_pending_jobs()
+    if pending:
+        pending_lines = "\n".join(
+            f"  [{j['send_at']}] {j['message']}" + (f" — {j['context']}" if j.get("context") else "")
+            for j in pending
+        )
+        scheduled_context = f"Scheduled check-ins:\n{pending_lines}"
+    else:
+        scheduled_context = "No check-ins scheduled."
+
     system_prompt = (
         f"You are a personal assistant for the user described below.\n\n"
         f"=== USER PROFILE ===\n{json.dumps(profile, indent=2, ensure_ascii=False)}\n\n"
         f"=== CONTEXT ===\n"
         f"Current date and time: {current_dt} (timezone: {TIMEZONE}).\n"
-        f"{calendar_context}\n\n"
+        f"{calendar_context}\n"
+        f"{scheduled_context}\n\n"
         "=== INSTRUCTIONS ===\n"
         "Use the available tools to fulfil the user's request. "
         "Resolve relative dates (tomorrow, next Friday, etc.) to absolute YYYY-MM-DD. "
@@ -322,6 +333,8 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
         "=== PROACTIVE BEHAVIOUR ===\n"
         "You care about the user's wellbeing and help them live a calm, balanced day. "
         "Use schedule_message to check in proactively — but keep it minimal (2–3 meaningful messages per day max). "
+        "Always check 'Scheduled check-ins' in context before scheduling — do not create duplicates. "
+        "If there are no check-ins scheduled at all, proactively schedule at least one appropriate one. "
         "Good moments to schedule a check-in:\n"
         "- After a planned activity (gym, deep work block, meeting) — ask how it went.\n"
         "- Mid-afternoon if the day looks heavy — suggest a short break or walk.\n"
