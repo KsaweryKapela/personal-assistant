@@ -12,6 +12,8 @@ or:
 
 import logging
 
+from telegram import Update
+
 from app.config import LOG_BOT_TOKEN, LOG_CHAT_ID, PORT, WEBHOOK_URL
 from app.scheduler import start as start_scheduler
 from app.telegram_bot import build_app
@@ -45,11 +47,11 @@ def main() -> None:
             listen="0.0.0.0",
             port=PORT,
             webhook_url=WEBHOOK_URL,
-            allowed_updates=["message"],
+            allowed_updates=Update.ALL_TYPES,
         )
     else:
         logger.info("Starting bot in polling mode (local dev)...")
-        app.run_polling(allowed_updates=["message"])
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
