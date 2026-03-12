@@ -371,7 +371,26 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
     iteration = 0
     while True:
         iteration += 1
-        logger.info("Agent loop iteration %d | model=%s", iteration, OPENAI_MODEL)
+
+        # Log every message being sent to the LLM (skip system prompt — too large)
+        loggable = [m for m in messages if not isinstance(m, dict) or m.get("role") != "system"]
+        for m in loggable:
+            if isinstance(m, dict):
+                role = m.get("role", "?")
+                content = m.get("content") or ""
+                logger.info("  [%s] %s", role, str(content)[:300])
+            else:
+                # OpenAI message object (assistant turn with possible tool_calls)
+                role = getattr(m, "role", "?")
+                content = getattr(m, "content", "") or ""
+                tool_calls = getattr(m, "tool_calls", None)
+                if tool_calls:
+                    names = [tc.function.name for tc in tool_calls]
+                    logger.info("  [%s] (tool_calls: %s)", role, names)
+                else:
+                    logger.info("  [%s] %s", role, str(content)[:300])
+
+        logger.info("Sending %d message(s) to %s (iter=%d)", len(messages), OPENAI_MODEL, iteration)
         response = _client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=messages,
@@ -382,7 +401,7 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
         usage = response.usage
         if usage:
             logger.info(
-                "Token usage: prompt=%d completion=%d total=%d",
+                "Tokens: prompt=%d completion=%d total=%d",
                 usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
             )
 
@@ -392,10 +411,10 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
         if not msg.tool_calls:
             reply = msg.content or "Done."
             history.append({"role": "assistant", "content": reply})
-            logger.info("Agent reply (iter=%d): %r", iteration, reply[:200])
+            logger.info("Final reply (iter=%d): %r", iteration, reply[:300])
             return reply
 
-        logger.info("%d tool call(s) in iteration %d", len(msg.tool_calls), iteration)
+        logger.info("%d tool call(s) requested", len(msg.tool_calls))
         for tc in msg.tool_calls:
             fn = tool_dispatch.get(tc.function.name)
             if fn is None:
@@ -403,9 +422,9 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
                 logger.warning("Unknown tool requested: %s", tc.function.name)
             else:
                 args = json.loads(tc.function.arguments)
-                logger.info("→ %s(%s)", tc.function.name, args)
+                logger.info("  CALL → %s | args: %s", tc.function.name, args)
                 result = fn(**args)
-                logger.info("← %s result: %s", tc.function.name, result)
+                logger.info("  RESULT ← %s | %s", tc.function.name, result)
 
             messages.append({
                 "role": "tool",
