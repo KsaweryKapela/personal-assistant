@@ -1,7 +1,7 @@
 import json
 import logging
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 import requests as http_requests
@@ -10,6 +10,7 @@ from openai import OpenAI
 from app.calendar_client import add_attendees, create_event, delete_event, list_events, update_event
 from app.config import OPENAI_API_KEY, OPENAI_MODEL, TELEGRAM_BOT_TOKEN, TIMEZONE
 from app.profile_client import load_profile, save_profile
+from app.scheduler import add_job
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +173,41 @@ _TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_message",
+            "description": (
+                "Schedule a proactive message to be sent to the user at a future time. "
+                "Use for check-ins, follow-ups, or reminders. "
+                "Provide either delay_minutes (e.g. 60 for 1 hour from now) "
+                "or send_at (ISO datetime string). Do not spam — a few meaningful "
+                "check-ins per day is enough."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "The message to send. Keep it short and friendly.",
+                    },
+                    "delay_minutes": {
+                        "type": "integer",
+                        "description": "Send this many minutes from now. Use instead of send_at.",
+                    },
+                    "send_at": {
+                        "type": "string",
+                        "description": "Exact send time as ISO datetime (e.g. '2026-03-12T18:00:00'). Use instead of delay_minutes.",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Optional note about why this was scheduled (for your own reference).",
+                    },
+                },
+                "required": ["message"],
+            },
+        },
+    },
 ]
 
 def _update_user_profile(action: str, category: str, key: str | None = None, value=None) -> dict:
@@ -207,6 +243,28 @@ def _build_send_profile(chat_id: int):
             logger.warning("Could not send profile via Telegram: %s", exc)
             return {"ok": False, "error": str(exc)}
     return send_profile
+
+
+def _build_schedule_message(chat_id: int):
+    """Return a closure that schedules a message for the given chat."""
+    def schedule_message(
+        message: str,
+        delay_minutes: int | None = None,
+        send_at: str | None = None,
+        context: str = "",
+    ) -> dict:
+        tz = pytz.timezone(TIMEZONE)
+        now = datetime.now(tz)
+        if delay_minutes is not None:
+            dt = now + timedelta(minutes=delay_minutes)
+        elif send_at:
+            dt = datetime.fromisoformat(send_at)
+            if dt.tzinfo is None:
+                dt = tz.localize(dt)
+        else:
+            return {"ok": False, "error": "Provide either delay_minutes or send_at."}
+        return add_job(chat_id, message, dt, context)
+    return schedule_message
 
 
 _TOOL_DISPATCH_BASE = {
@@ -260,12 +318,26 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
         "When the user shares new personal info, preferences, or contacts (including email addresses), "
         "call update_user_profile once per changed field using action='set' or action='delete'. "
         "Never pass the full profile — only the specific category, key, and value being changed. "
-        "When the user asks to see their profile, call send_profile. "
-        "After completing all actions, reply with a short, friendly confirmation."
+        "When the user asks to see their profile, call send_profile.\n\n"
+        "=== PROACTIVE BEHAVIOUR ===\n"
+        "You care about the user's wellbeing and help them live a calm, balanced day. "
+        "Use schedule_message to check in proactively — but keep it minimal (2–3 meaningful messages per day max). "
+        "Good moments to schedule a check-in:\n"
+        "- After a planned activity (gym, deep work block, meeting) — ask how it went.\n"
+        "- Mid-afternoon if the day looks heavy — suggest a short break or walk.\n"
+        "- Evening (~20:00) — a brief reflection on the day.\n"
+        "- Whenever the user says 'remind me', 'check back', 'ask me later', etc.\n"
+        "When the user responds to a check-in and shares something meaningful (mood, progress, habits), "
+        "save it to the profile using update_user_profile.\n\n"
+        "Tone: gentle, supportive, concise. Short messages. Never pushy."
     )
 
-    # Build per-call dispatch table (includes chat_id-bound send_profile)
-    tool_dispatch = {**_TOOL_DISPATCH_BASE, "send_profile": _build_send_profile(chat_id)}
+    # Build per-call dispatch table (includes chat_id-bound closures)
+    tool_dispatch = {
+        **_TOOL_DISPATCH_BASE,
+        "send_profile": _build_send_profile(chat_id),
+        "schedule_message": _build_schedule_message(chat_id),
+    }
 
     # Retrieve or initialise conversation history for this chat
     if chat_id not in _history:

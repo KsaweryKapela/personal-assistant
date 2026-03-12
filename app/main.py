@@ -13,6 +13,7 @@ or:
 import logging
 
 from app.config import PORT, WEBHOOK_URL
+from app.scheduler import start as start_scheduler
 from app.telegram_bot import build_app
 
 logging.basicConfig(
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    start_scheduler()
     app = build_app()
 
     if WEBHOOK_URL:
