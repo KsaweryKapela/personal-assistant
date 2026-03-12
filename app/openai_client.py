@@ -10,7 +10,7 @@ from openai import OpenAI
 from app.calendar_client import add_attendees, create_event, delete_event, list_events, update_event
 from app.config import OPENAI_API_KEY, OPENAI_MODEL, TELEGRAM_BOT_TOKEN, TIMEZONE
 from app.profile_client import load_profile, save_profile
-from app.scheduler import add_job
+from app.scheduler import add_job, get_pending_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -203,8 +203,12 @@ _TOOLS = [
                         "type": "string",
                         "description": "Optional note about why this was scheduled (for your own reference).",
                     },
+                    "name": {
+                        "type": "string",
+                        "description": "Short label for this job, e.g. 'gym check-in', 'evening reflection'. Required.",
+                    },
                 },
-                "required": ["message"],
+                "required": ["message", "name"],
             },
         },
     },
@@ -249,6 +253,7 @@ def _build_schedule_message(chat_id: int):
     """Return a closure that schedules a message for the given chat."""
     def schedule_message(
         message: str,
+        name: str,
         delay_minutes: int | None = None,
         send_at: str | None = None,
         context: str = "",
@@ -263,7 +268,7 @@ def _build_schedule_message(chat_id: int):
                 dt = tz.localize(dt)
         else:
             return {"ok": False, "error": "Provide either delay_minutes or send_at."}
-        return add_job(chat_id, message, dt, context)
+        return add_job(chat_id, message, dt, context, name)
     return schedule_message
 
 
@@ -303,12 +308,23 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
 
     profile = load_profile()
 
+    pending = get_pending_jobs()
+    if pending:
+        pending_lines = "\n".join(
+            f"  [{j.get('name', 'unnamed')}] {j['send_at']} — {j['message']}"
+            for j in pending
+        )
+        scheduled_context = f"Scheduled check-ins:\n{pending_lines}"
+    else:
+        scheduled_context = "No check-ins scheduled."
+
     system_prompt = (
         f"You are a personal assistant for the user described below.\n\n"
         f"=== USER PROFILE ===\n{json.dumps(profile, indent=2, ensure_ascii=False)}\n\n"
         f"=== CONTEXT ===\n"
         f"Current date and time: {current_dt} (timezone: {TIMEZONE}).\n"
-        f"{calendar_context}\n\n"
+        f"{calendar_context}\n"
+        f"{scheduled_context}\n\n"
         "=== INSTRUCTIONS ===\n"
         "Use the available tools to fulfil the user's request. "
         "Resolve relative dates (tomorrow, next Friday, etc.) to absolute YYYY-MM-DD. "
@@ -322,6 +338,8 @@ def run_agent(user_message: str, chat_id: int = 0) -> str:
         "=== PROACTIVE BEHAVIOUR ===\n"
         "You care about the user's wellbeing and help them live a calm, balanced day. "
         "Use schedule_message to check in proactively — but keep it minimal (2–3 meaningful messages per day max). "
+        "Always check 'Scheduled check-ins' in context before scheduling — do not create duplicates. "
+        "If there are no check-ins scheduled at all, proactively schedule at least one appropriate one. "
         "Good moments to schedule a check-in:\n"
         "- After a planned activity (gym, deep work block, meeting) — ask how it went.\n"
         "- Mid-afternoon if the day looks heavy — suggest a short break or walk.\n"
