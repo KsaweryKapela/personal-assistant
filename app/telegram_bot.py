@@ -18,18 +18,37 @@ async def _handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     chat_id = update.message.chat_id
+    message_id = update.message.message_id
+    from_user = update.message.from_user
+    user_info = (
+        f"user_id={from_user.id} username={from_user.username!r} name={from_user.full_name!r}"
+        if from_user else "from_user=unknown"
+    )
     text = update.message.text
-    logger.info("Incoming message | chat_id=%s | %r", chat_id, text[:200])
+
+    logger.info(
+        "TEXT_MESSAGE_IN | chat_id=%s | message_id=%s | %s | text_len=%d",
+        chat_id, message_id, user_info, len(text),
+    )
+    logger.info("TEXT_MESSAGE_IN | text: %s", text)
 
     t0 = time.monotonic()
     try:
         reply = await asyncio.to_thread(process_message, text, chat_id)
     except Exception as exc:
-        logger.error("Unhandled error processing message: %s", exc, exc_info=True)
+        logger.error(
+            "TEXT_MESSAGE_ERROR | chat_id=%s | message_id=%s | error=%s",
+            chat_id, message_id, exc, exc_info=True,
+        )
         reply = "Something went wrong on my end. Please try again."
 
     await update.message.reply_text(reply)
-    logger.info("Replied | chat_id=%s | %.2fs | %r", chat_id, time.monotonic() - t0, reply[:200])
+    elapsed = time.monotonic() - t0
+    logger.info(
+        "TEXT_MESSAGE_OUT | chat_id=%s | message_id=%s | total_duration=%.2fs | reply_len=%d",
+        chat_id, message_id, elapsed, len(reply),
+    )
+    logger.info("TEXT_MESSAGE_OUT | reply: %s", reply)
 
 
 async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -38,23 +57,52 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     chat_id = update.message.chat_id
-    logger.info("Incoming voice | chat_id=%s | duration=%ds", chat_id, update.message.voice.duration)
+    message_id = update.message.message_id
+    from_user = update.message.from_user
+    user_info = (
+        f"user_id={from_user.id} username={from_user.username!r} name={from_user.full_name!r}"
+        if from_user else "from_user=unknown"
+    )
+    voice = update.message.voice
+
+    logger.info(
+        "VOICE_MESSAGE_IN | chat_id=%s | message_id=%s | %s | file_id=%s | duration=%ds | mime_type=%s | file_size=%s",
+        chat_id, message_id, user_info,
+        voice.file_id, voice.duration, voice.mime_type, voice.file_size,
+    )
 
     t0 = time.monotonic()
     try:
-        text = await transcribe(update.message.voice.file_id, context.bot)
-        logger.info("Voice transcribed in %.2fs | %r", time.monotonic() - t0, text[:200])
+        logger.info("VOICE_TRANSCRIBE_START | chat_id=%s | file_id=%s", chat_id, voice.file_id)
+        text = await transcribe(voice.file_id, context.bot)
+        transcribe_elapsed = time.monotonic() - t0
+        logger.info(
+            "VOICE_TRANSCRIBE_END | chat_id=%s | duration=%.2fs | text_len=%d",
+            chat_id, transcribe_elapsed, len(text),
+        )
+        logger.info("VOICE_TRANSCRIBE_END | transcribed: %s", text)
+
         reply = await asyncio.to_thread(process_message, text, chat_id)
     except Exception as exc:
-        logger.error("Error processing voice message: %s", exc, exc_info=True)
+        logger.error(
+            "VOICE_MESSAGE_ERROR | chat_id=%s | message_id=%s | error=%s",
+            chat_id, message_id, exc, exc_info=True,
+        )
         reply = "Sorry, I couldn't process that voice message."
 
     await update.message.reply_text(reply)
-    logger.info("Replied | chat_id=%s | %.2fs | %r", chat_id, time.monotonic() - t0, reply[:200])
+    elapsed = time.monotonic() - t0
+    logger.info(
+        "VOICE_MESSAGE_OUT | chat_id=%s | message_id=%s | total_duration=%.2fs | reply_len=%d",
+        chat_id, message_id, elapsed, len(reply),
+    )
+    logger.info("VOICE_MESSAGE_OUT | reply: %s", reply)
 
 
 def build_app() -> Application:
+    logger.info("Building Telegram application")
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _handle_message))
     app.add_handler(MessageHandler(filters.VOICE, _handle_voice))
+    logger.info("Telegram application built | handlers=TEXT,VOICE")
     return app

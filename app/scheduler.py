@@ -30,11 +30,22 @@ _lock = threading.Lock()
 
 def _load_jobs() -> list[dict]:
     if os.path.exists(_SCHEDULER_FILE):
+        logger.info("Scheduler storage | loading jobs from %s", _SCHEDULER_FILE)
         try:
             with open(_SCHEDULER_FILE) as f:
-                return json.load(f)
+                jobs = json.load(f)
+            logger.info("Scheduler storage | loaded %d job(s)", len(jobs))
+            for job in jobs:
+                logger.info(
+                    "Scheduler storage | job | id=%s | name=%r | chat_id=%s | send_at=%s | message=%r",
+                    job.get("id"), job.get("name"), job.get("chat_id"),
+                    job.get("send_at"), job.get("message", "")[:80],
+                )
+            return jobs
         except Exception as exc:
-            logger.warning("Could not load %s: %s", _SCHEDULER_FILE, exc)
+            logger.warning("Scheduler storage | failed to load %s | error=%s", _SCHEDULER_FILE, exc)
+    else:
+        logger.info("Scheduler storage | no file at %s, starting empty", _SCHEDULER_FILE)
     return []
 
 
@@ -43,8 +54,9 @@ def _save_jobs() -> None:
     try:
         with open(_SCHEDULER_FILE, "w") as f:
             json.dump(_jobs, f, indent=2)
+        logger.debug("Scheduler storage | saved %d job(s) to %s", len(_jobs), _SCHEDULER_FILE)
     except Exception as exc:
-        logger.warning("Could not save %s: %s", _SCHEDULER_FILE, exc)
+        logger.warning("Scheduler storage | failed to save %s | error=%s", _SCHEDULER_FILE, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +76,10 @@ def add_job(chat_id: int, message: str, send_at: datetime, context: str = "", na
     with _lock:
         _jobs.append(job)
         _save_jobs()
-    logger.info("Scheduled job %s for %s", job["id"], job["send_at"])
+    logger.info(
+        "add_job | ok | job_id=%s | name=%r | chat_id=%s | send_at=%s | message=%r | context=%r",
+        job["id"], name, chat_id, job["send_at"], message[:80], context[:80],
+    )
     return {"ok": True, "job_id": job["id"], "send_at": job["send_at"]}
 
 
@@ -72,7 +87,9 @@ def add_job(chat_id: int, message: str, send_at: datetime, context: str = "", na
 # Background thread
 # ---------------------------------------------------------------------------
 
-def _send(chat_id: int, text: str) -> None:
+def _send(chat_id: int, text: str, job_id: str) -> None:
+    logger.info("Scheduler delivery | start | job_id=%s | chat_id=%s | message_len=%d", job_id, chat_id, len(text))
+    t0 = time.monotonic()
     try:
         resp = http_requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
@@ -80,30 +97,46 @@ def _send(chat_id: int, text: str) -> None:
             timeout=10,
         )
         resp.raise_for_status()
+        logger.info(
+            "Scheduler delivery | ok | job_id=%s | chat_id=%s | status=%d | duration=%.2fs",
+            job_id, chat_id, resp.status_code, time.monotonic() - t0,
+        )
     except Exception as exc:
-        logger.warning("Could not deliver scheduled message: %s", exc)
+        logger.warning(
+            "Scheduler delivery | failed | job_id=%s | chat_id=%s | duration=%.2fs | error=%s",
+            job_id, chat_id, time.monotonic() - t0, exc,
+        )
 
 
 def _tick() -> None:
     now = datetime.now(timezone.utc)
     with _lock:
         due = [j for j in _jobs if datetime.fromisoformat(j["send_at"]) <= now]
+        remaining = len(_jobs) - len(due)
         for job in due:
             _jobs.remove(job)
         if due:
             _save_jobs()
 
-    for job in due:
-        logger.info("Delivering scheduled job %s to chat %s", job["id"], job["chat_id"])
-        _send(job["chat_id"], job["message"])
+    if due:
+        logger.info(
+            "Scheduler tick | due=%d | remaining=%d | delivering: %s",
+            len(due), remaining,
+            [{"id": j["id"], "name": j.get("name"), "chat_id": j["chat_id"]} for j in due],
+        )
+        for job in due:
+            _send(job["chat_id"], job["message"], job["id"])
+    else:
+        logger.debug("Scheduler tick | due=0 | remaining=%d", remaining)
 
 
 def _run() -> None:
+    logger.info("Scheduler thread | running | poll_interval=60s")
     while True:
         try:
             _tick()
         except Exception as exc:
-            logger.error("Scheduler tick error: %s", exc)
+            logger.error("Scheduler tick | unhandled error | error=%s", exc, exc_info=True)
         time.sleep(60)
 
 
@@ -119,4 +152,4 @@ def start() -> None:
     _jobs = _load_jobs()
     t = threading.Thread(target=_run, daemon=True, name="scheduler")
     t.start()
-    logger.info("Scheduler started (%d pending job(s))", len(_jobs))
+    logger.info("Scheduler started | pending_jobs=%d", len(_jobs))

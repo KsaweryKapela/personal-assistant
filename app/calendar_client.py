@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from datetime import datetime, timedelta
 
 import pytz
@@ -27,8 +28,10 @@ def _sync_token_to_railway(token_json: str) -> None:
     service_id = os.getenv("RAILWAY_SERVICE_ID")
 
     if not all([api_token, project_id, environment_id, service_id]):
-        return  # Not running on Railway or token not configured — skip silently
+        logger.info("Railway token sync | skipped (Railway env vars not configured)")
+        return
 
+    logger.info("Railway token sync | start | project_id=%s | service_id=%s", project_id, service_id)
     mutation = """
     mutation variableUpsert($input: VariableUpsertInput!) {
         variableUpsert(input: $input)
@@ -46,6 +49,7 @@ def _sync_token_to_railway(token_json: str) -> None:
             }
         },
     }
+    t0 = time.monotonic()
     try:
         resp = http_requests.post(
             _RAILWAY_GQL,
@@ -54,9 +58,15 @@ def _sync_token_to_railway(token_json: str) -> None:
             timeout=10,
         )
         resp.raise_for_status()
-        logger.info("Synced refreshed token to Railway env vars.")
+        logger.info(
+            "Railway token sync | ok | status=%d | duration=%.2fs",
+            resp.status_code, time.monotonic() - t0,
+        )
     except Exception as exc:
-        logger.warning("Could not sync token to Railway: %s", exc)
+        logger.warning(
+            "Railway token sync | failed | duration=%.2fs | error=%s",
+            time.monotonic() - t0, exc,
+        )
 
 
 def _get_service():
@@ -64,33 +74,43 @@ def _get_service():
     creds = None
 
     if os.path.exists(GOOGLE_TOKEN_FILE):
+        logger.info("Google auth | loading token from %s", GOOGLE_TOKEN_FILE)
         creds = Credentials.from_authorized_user_file(GOOGLE_TOKEN_FILE, SCOPES)
+    else:
+        logger.info("Google auth | no token file at %s", GOOGLE_TOKEN_FILE)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            logger.info("Refreshing Google OAuth token.")
+            logger.info("Google auth | token expired, refreshing")
+            t0 = time.monotonic()
             creds.refresh(Request())
+            logger.info("Google auth | token refreshed | duration=%.2fs", time.monotonic() - t0)
         else:
             if not os.path.exists(GOOGLE_CREDENTIALS_FILE):
                 raise FileNotFoundError(
                     f"Google credentials file not found: {GOOGLE_CREDENTIALS_FILE}\n"
                     "Download it from Google Cloud Console and set GOOGLE_CREDENTIALS_FILE."
                 )
-            logger.info("Starting Google OAuth flow — browser will open.")
+            logger.info("Google auth | starting OAuth flow (browser will open) | credentials=%s", GOOGLE_CREDENTIALS_FILE)
             flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
+            logger.info("Google auth | OAuth flow complete")
 
         token_json = creds.to_json()
         with open(GOOGLE_TOKEN_FILE, "w") as fh:
             fh.write(token_json)
-        logger.info("Saved Google token to %s", GOOGLE_TOKEN_FILE)
+        logger.info("Google auth | token saved to %s", GOOGLE_TOKEN_FILE)
         _sync_token_to_railway(token_json)
+    else:
+        logger.debug("Google auth | token valid, reusing")
 
     return build("calendar", "v3", credentials=creds)
 
 
 def list_events(date: str) -> dict:
     """List all events for a given date (YYYY-MM-DD)."""
+    logger.info("list_events | start | date=%s", date)
+    t0 = time.monotonic()
     try:
         service = _get_service()
         tz = pytz.timezone(TIMEZONE)
@@ -98,6 +118,11 @@ def list_events(date: str) -> dict:
         day = datetime.strptime(date, "%Y-%m-%d")
         start = tz.localize(day.replace(hour=0, minute=0, second=0, microsecond=0))
         end = tz.localize(day.replace(hour=23, minute=59, second=59, microsecond=0))
+
+        logger.info(
+            "list_events | query | calendarId=primary | timeMin=%s | timeMax=%s",
+            start.isoformat(), end.isoformat(),
+        )
 
         result = service.events().list(
             calendarId="primary",
@@ -121,14 +146,25 @@ def list_events(date: str) -> dict:
                 "attendees": [a.get("email") for a in e.get("attendees", [])],
             })
 
-        logger.info("Listed %d events for %s", len(events), date)
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "list_events | ok | date=%s | events=%d | duration=%.2fs",
+            date, len(events), elapsed,
+        )
+        if events:
+            logger.info(
+                "list_events | event_ids=%s",
+                [{"id": e["id"], "title": e["title"]} for e in events],
+            )
         return {"events": events}
 
     except HttpError as exc:
-        logger.error("Google Calendar HTTP error: %s", exc)
+        elapsed = time.monotonic() - t0
+        logger.error("list_events | Google API error | date=%s | duration=%.2fs | error=%s", date, elapsed, exc)
         return {"error": f"Google Calendar error: {exc}"}
     except Exception as exc:
-        logger.error("Unexpected calendar error: %s", exc)
+        elapsed = time.monotonic() - t0
+        logger.error("list_events | unexpected error | date=%s | duration=%.2fs | error=%s", date, elapsed, exc)
         return {"error": str(exc)}
 
 
@@ -142,6 +178,13 @@ def create_event(
     attendees: list = None,
 ) -> dict:
     """Create a calendar event. Returns event id and link."""
+    logger.info(
+        "create_event | start | title=%r | date=%s | start_time=%s | duration_minutes=%d | "
+        "location=%r | attendees=%s | has_description=%s",
+        title, date, start_time, duration_minutes,
+        location, attendees, bool(description),
+    )
+    t0 = time.monotonic()
     try:
         service = _get_service()
         tz = pytz.timezone(TIMEZONE)
@@ -162,31 +205,47 @@ def create_event(
         if attendees:
             body["attendees"] = [{"email": e} for e in attendees]
 
+        logger.info(
+            "create_event | inserting | start=%s | end=%s | body_keys=%s",
+            start_dt.isoformat(), end_dt.isoformat(), list(body.keys()),
+        )
         event = service.events().insert(calendarId="primary", body=body).execute()
-        logger.info("Created event id=%s title=%r", event.get("id"), title)
+
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "create_event | ok | event_id=%s | title=%r | duration=%.2fs | link=%s",
+            event.get("id"), title, elapsed, event.get("htmlLink"),
+        )
         return {"ok": True, "event_id": event.get("id"), "link": event.get("htmlLink")}
 
     except HttpError as exc:
-        logger.error("Google Calendar HTTP error: %s", exc)
+        elapsed = time.monotonic() - t0
+        logger.error("create_event | Google API error | title=%r | duration=%.2fs | error=%s", title, elapsed, exc)
         return {"ok": False, "error": f"Google Calendar error: {exc}"}
     except Exception as exc:
-        logger.error("Unexpected calendar error: %s", exc)
+        elapsed = time.monotonic() - t0
+        logger.error("create_event | unexpected error | title=%r | duration=%.2fs | error=%s", title, elapsed, exc)
         return {"ok": False, "error": str(exc)}
 
 
 def delete_event(event_id: str) -> dict:
     """Delete a calendar event by ID."""
+    logger.info("delete_event | start | event_id=%s", event_id)
+    t0 = time.monotonic()
     try:
         service = _get_service()
         service.events().delete(calendarId="primary", eventId=event_id).execute()
-        logger.info("Deleted event id=%s", event_id)
+        elapsed = time.monotonic() - t0
+        logger.info("delete_event | ok | event_id=%s | duration=%.2fs", event_id, elapsed)
         return {"ok": True}
 
     except HttpError as exc:
-        logger.error("Google Calendar HTTP error: %s", exc)
+        elapsed = time.monotonic() - t0
+        logger.error("delete_event | Google API error | event_id=%s | duration=%.2fs | error=%s", event_id, elapsed, exc)
         return {"ok": False, "error": f"Google Calendar error: {exc}"}
     except Exception as exc:
-        logger.error("Unexpected calendar error: %s", exc)
+        elapsed = time.monotonic() - t0
+        logger.error("delete_event | unexpected error | event_id=%s | duration=%.2fs | error=%s", event_id, elapsed, exc)
         return {"ok": False, "error": str(exc)}
 
 
@@ -200,11 +259,22 @@ def update_event(
     location: str = None,
 ) -> dict:
     """Update fields on an existing event. Only provided fields are changed."""
+    updates = {k: v for k, v in {
+        "title": title, "date": date, "start_time": start_time,
+        "duration_minutes": duration_minutes, "description": description, "location": location,
+    }.items() if v is not None}
+    logger.info("update_event | start | event_id=%s | fields_to_update=%s", event_id, list(updates.keys()))
+    t0 = time.monotonic()
     try:
         service = _get_service()
         tz = pytz.timezone(TIMEZONE)
 
+        logger.info("update_event | fetching current event | event_id=%s", event_id)
         event = service.events().get(calendarId="primary", eventId=event_id).execute()
+        logger.info(
+            "update_event | fetched | title=%r | start=%s",
+            event.get("summary"), event.get("start", {}).get("dateTime"),
+        )
 
         if title is not None:
             event["summary"] = title
@@ -214,7 +284,6 @@ def update_event(
             event["location"] = location
 
         if date or start_time or duration_minutes:
-            # Parse current start/end to fill in any missing pieces
             current_start_str = event.get("start", {}).get("dateTime")
             if current_start_str:
                 current_start = datetime.fromisoformat(current_start_str)
@@ -239,6 +308,10 @@ def update_event(
             new_start = tz.localize(new_start)
             new_end = new_start + timedelta(minutes=use_duration)
 
+            logger.info(
+                "update_event | rescheduling | new_start=%s | new_end=%s | duration=%dmin",
+                new_start.isoformat(), new_end.isoformat(), use_duration,
+            )
             event["start"] = {"dateTime": new_start.isoformat(), "timeZone": TIMEZONE}
             event["end"] = {"dateTime": new_end.isoformat(), "timeZone": TIMEZONE}
 
@@ -246,40 +319,69 @@ def update_event(
             calendarId="primary", eventId=event_id, body=event
         ).execute()
 
-        logger.info("Updated event id=%s", event_id)
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "update_event | ok | event_id=%s | updated_fields=%s | duration=%.2fs",
+            event_id, list(updates.keys()), elapsed,
+        )
         return {"ok": True, "event_id": updated.get("id"), "link": updated.get("htmlLink")}
 
     except HttpError as exc:
-        logger.error("Google Calendar HTTP error: %s", exc)
+        elapsed = time.monotonic() - t0
+        logger.error("update_event | Google API error | event_id=%s | duration=%.2fs | error=%s", event_id, elapsed, exc)
         return {"ok": False, "error": f"Google Calendar error: {exc}"}
     except Exception as exc:
-        logger.error("Unexpected calendar error: %s", exc)
+        elapsed = time.monotonic() - t0
+        logger.error("update_event | unexpected error | event_id=%s | duration=%.2fs | error=%s", event_id, elapsed, exc)
         return {"ok": False, "error": str(exc)}
 
 
 def add_attendees(event_id: str, emails: list) -> dict:
     """Add one or more attendees (by email) to an existing event."""
+    logger.info("add_attendees | start | event_id=%s | emails=%s", event_id, emails)
+    t0 = time.monotonic()
     try:
         service = _get_service()
+        logger.info("add_attendees | fetching event | event_id=%s", event_id)
         event = service.events().get(calendarId="primary", eventId=event_id).execute()
 
         existing = {a.get("email") for a in event.get("attendees", [])}
+        logger.info(
+            "add_attendees | current_attendees=%s | new_emails=%s",
+            list(existing), emails,
+        )
+
         attendees = list(event.get("attendees", []))
+        added = []
+        already_present = []
         for email in emails:
             if email not in existing:
                 attendees.append({"email": email})
+                added.append(email)
+            else:
+                already_present.append(email)
+
+        if already_present:
+            logger.info("add_attendees | skipping already present: %s", already_present)
 
         event["attendees"] = attendees
         updated = service.events().update(
             calendarId="primary", eventId=event_id, body=event
         ).execute()
 
-        logger.info("Added attendees %s to event id=%s", emails, event_id)
-        return {"ok": True, "attendees": [a.get("email") for a in updated.get("attendees", [])]}
+        elapsed = time.monotonic() - t0
+        final_attendees = [a.get("email") for a in updated.get("attendees", [])]
+        logger.info(
+            "add_attendees | ok | event_id=%s | added=%s | final_attendees=%s | duration=%.2fs",
+            event_id, added, final_attendees, elapsed,
+        )
+        return {"ok": True, "attendees": final_attendees}
 
     except HttpError as exc:
-        logger.error("Google Calendar HTTP error: %s", exc)
+        elapsed = time.monotonic() - t0
+        logger.error("add_attendees | Google API error | event_id=%s | duration=%.2fs | error=%s", event_id, elapsed, exc)
         return {"ok": False, "error": f"Google Calendar error: {exc}"}
     except Exception as exc:
-        logger.error("Unexpected calendar error: %s", exc)
+        elapsed = time.monotonic() - t0
+        logger.error("add_attendees | unexpected error | event_id=%s | duration=%.2fs | error=%s", event_id, elapsed, exc)
         return {"ok": False, "error": str(exc)}
