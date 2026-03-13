@@ -84,7 +84,7 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         await update.message.reply_text(f"🎤 _{text}_", parse_mode="Markdown")
 
-        reply = await asyncio.to_thread(process_message, text, chat_id)
+        reply = await asyncio.to_thread(process_message, text, chat_id, "voice")
     except Exception as exc:
         logger.error(
             "VOICE_MESSAGE_ERROR | chat_id=%s | message_id=%s | error=%s",

@@ -53,6 +53,9 @@ def main() -> None:
     else:
         logger.info("Telegram log bot disabled (LOG_BOT_TOKEN/LOG_CHAT_ID not set)")
 
+    from app.database import init_db
+    init_db()
+
     start_scheduler()
     app = build_app()
 
