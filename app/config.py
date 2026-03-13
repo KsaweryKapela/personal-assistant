@@ -23,3 +23,6 @@ PORT: int = int(os.getenv("PORT", "8080"))
 # Optional — Telegram bot dedicated to streaming logs
 LOG_BOT_TOKEN: str | None = os.getenv("LOG_BOT_TOKEN")
 LOG_CHAT_ID: str | None = os.getenv("LOG_CHAT_ID")
+
+# PostgreSQL — auto-injected by Railway when a Postgres service is in the same project
+DATABASE_URL: str = _require("DATABASE_URL")

@@ -213,22 +213,131 @@ _TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "log_activity",
+            "description": (
+                "Log a user activity to the database. Call this when the user reports "
+                "completing, skipping, or partially doing something — gym, deep work, "
+                "reading, meals, walks, habits, etc. Always log after a check-in response."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Activity category: workout, work, meal, reading, walk, social, habit, or other.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Short descriptive name, e.g. 'gym session', 'deep work block', 'morning walk'.",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["completed", "completed_late", "skipped", "partial"],
+                        "description": "completed = done on time, completed_late = done but late, skipped = not done, partial = started but not finished.",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Optional freeform notes, e.g. 'felt tired', 'hit new PR on bench'.",
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "description": "Optional structured data, e.g. {\"duration_minutes\": 60, \"weight_kg\": 100}.",
+                    },
+                },
+                "required": ["category", "name", "status"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_stats",
+            "description": "Get activity statistics and completion rates for a given period.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Filter by category (optional). Omit for all categories.",
+                    },
+                    "period_days": {
+                        "type": "integer",
+                        "description": "How many days back to look. Default 7.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_memory",
+            "description": (
+                "Semantic search across all stored messages and activities. "
+                "Use when the user asks about past events, feelings, or patterns "
+                "that may not be in recent context."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language search query.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return. Default 5.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_database",
+            "description": (
+                "Run a read-only SELECT query directly on the database. "
+                "Tables: activities (id, chat_id, timestamp, category, name, status, notes, metadata), "
+                "messages (id, chat_id, timestamp, role, content, message_type), "
+                "profile (chat_id, data, updated_at). "
+                "Use this when the user wants to inspect raw records."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sql": {
+                        "type": "string",
+                        "description": "A SELECT SQL query. Only SELECT is allowed.",
+                    },
+                },
+                "required": ["sql"],
+            },
+        },
+    },
 ]
 
-def _update_user_profile(action: str, category: str, key: str | None = None, value=None) -> dict:
-    profile = load_profile()
-    if action == "set":
-        if key is None:
-            return {"ok": False, "error": "key is required for action='set'"}
-        if category not in profile or not isinstance(profile[category], dict):
-            profile[category] = {}
-        profile[category][key] = value
-    elif action == "delete":
-        if key is None:
-            profile.pop(category, None)
-        elif category in profile and isinstance(profile[category], dict):
-            profile[category].pop(key, None)
-    return save_profile(profile)
+def _build_update_user_profile(chat_id: int):
+    def update_user_profile(action: str, category: str, key: str | None = None, value=None) -> dict:
+        profile = load_profile(chat_id)
+        if action == "set":
+            if key is None:
+                return {"ok": False, "error": "key is required for action='set'"}
+            if category not in profile or not isinstance(profile[category], dict):
+                profile[category] = {}
+            profile[category][key] = value
+        elif action == "delete":
+            if key is None:
+                profile.pop(category, None)
+            elif category in profile and isinstance(profile[category], dict):
+                profile[category].pop(key, None)
+        return save_profile(profile, chat_id)
+    return update_user_profile
 
 
 def _build_send_profile(chat_id: int):
@@ -303,7 +412,6 @@ _TOOL_DISPATCH_BASE = {
     "delete_event": delete_event,
     "update_event": update_event,
     "add_attendees": add_attendees,
-    "update_user_profile": _update_user_profile,
 }
 
 
@@ -351,7 +459,7 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         logger.warning("%sCalendar context | failed | duration=%.2fs | error=%s", p, cal_elapsed, exc)
 
     logger.info("%sProfile context | loading", p)
-    profile = load_profile()
+    profile = load_profile(chat_id)
     profile_keys = list(profile.keys())
     profile_str = json.dumps(profile, ensure_ascii=False)
     logger.info("%sProfile context | categories=%s | size=%d chars", p, profile_keys, len(profile_str))
@@ -373,6 +481,23 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         scheduled_context = "No check-ins scheduled."
         logger.info("%sScheduled context | pending=0", p)
 
+    logger.info("%sActivity context | loading recent activities", p)
+    try:
+        from app.database import get_recent_activities
+        recent_acts = get_recent_activities(chat_id, limit=10)
+        if recent_acts:
+            act_lines = "\n".join(
+                f"  [{a['timestamp'][:16]}] {a['category']} | {a['name']} | {a['status']}"
+                for a in recent_acts
+            )
+            activity_context = f"Recent logged activities:\n{act_lines}"
+        else:
+            activity_context = "No activities logged yet."
+        logger.info("%sActivity context | %d records", p, len(recent_acts))
+    except Exception as exc:
+        activity_context = "(Could not load activity log)"
+        logger.warning("%sActivity context | failed | error=%s", p, exc)
+
     ctx_elapsed = time.monotonic() - t_ctx
     logger.info("%sCONTEXT_LOAD_END | duration=%.2fs", p, ctx_elapsed)
 
@@ -383,7 +508,8 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         f"=== CONTEXT ===\n"
         f"Current date and time: {current_dt} (timezone: {TIMEZONE}).\n"
         f"{calendar_context}\n"
-        f"{scheduled_context}\n\n"
+        f"{scheduled_context}\n"
+        f"{activity_context}\n\n"
         "=== INSTRUCTIONS ===\n"
         "Use the available tools to fulfil the user's request. "
         "Resolve relative dates (tomorrow, next Friday, etc.) to absolute YYYY-MM-DD. "
@@ -405,16 +531,32 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "- Evening (~20:00) — a brief reflection on the day.\n"
         "- Whenever the user says 'remind me', 'check back', 'ask me later', etc.\n"
         "When the user responds to a check-in and shares something meaningful (mood, progress, habits), "
-        "save it to the profile using update_user_profile.\n\n"
+        "call log_activity to record it AND save key insights to the profile using update_user_profile.\n\n"
+        "=== ACTIVITY LOGGING ===\n"
+        "Always call log_activity when the user reports on an activity (completed, skipped, late, partial). "
+        "Use query_stats when asked about patterns, habits, or progress. "
+        "Use search_memory for questions about past events or feelings. "
+        "Use query_database when the user wants to inspect raw records.\n\n"
         "Tone: gentle, supportive, concise. Short messages. Never pushy."
     )
     logger.info("%sSystem prompt built | total_chars=%d", p, len(system_prompt))
 
     # Build per-call dispatch table (includes chat_id-bound closures)
+    from app.database import log_activity, query_stats, search_memory, run_query
+
+    def _log_activity(**kwargs): return log_activity(chat_id, **kwargs)
+    def _query_stats(**kwargs): return query_stats(chat_id, **kwargs)
+    def _search_memory(**kwargs): return search_memory(chat_id, **kwargs)
+
     tool_dispatch = {
         **_TOOL_DISPATCH_BASE,
+        "update_user_profile": _build_update_user_profile(chat_id),
         "send_profile": _build_send_profile(chat_id),
         "schedule_message": _build_schedule_message(chat_id),
+        "log_activity": _log_activity,
+        "query_stats": _query_stats,
+        "search_memory": _search_memory,
+        "query_database": run_query,
     }
 
     # ---- History management ----

@@ -10,28 +10,33 @@ logger = logging.getLogger(__name__)
 _RAILWAY_GQL = "https://backboard.railway.app/graphql/v2"
 
 
-def load_profile() -> dict:
-    """Return the current user profile as a dict from the USER_PROFILE env var."""
+def load_profile(chat_id: int = 0) -> dict:
+    """Load profile from DB (primary). Falls back to USER_PROFILE env on first run."""
+    from app.database import load_profile_from_db, save_profile_to_db
+
+    profile = load_profile_from_db(chat_id)
+    if profile is not None:
+        logger.info("load_profile | source=db | chat_id=%s | categories=%s", chat_id, list(profile.keys()))
+        return profile
+
+    # First run — migrate from env into DB
     raw = os.getenv("USER_PROFILE")
     if not raw:
-        logger.error("load_profile | USER_PROFILE env var is not set")
-        raise RuntimeError("Missing required environment variable: USER_PROFILE")
+        raise RuntimeError("Missing required environment variable: USER_PROFILE (and no DB record found)")
     profile = json.loads(raw)
-    logger.info(
-        "load_profile | ok | categories=%s | size=%d chars",
-        list(profile.keys()), len(raw),
-    )
+    save_profile_to_db(chat_id, profile)
+    logger.info("load_profile | source=env (migrated to db) | chat_id=%s | categories=%s", chat_id, list(profile.keys()))
     return profile
 
 
-def save_profile(profile: dict) -> dict:
-    """Persist the updated profile dict to env and Railway."""
+def save_profile(profile: dict, chat_id: int = 0) -> dict:
+    """Save profile to DB (primary) and sync to Railway env (backup)."""
+    from app.database import save_profile_to_db
+    save_profile_to_db(chat_id, profile)
+
+    # Keep Railway env in sync as a backup
     new_profile_str = json.dumps(profile, ensure_ascii=False)
     os.environ["USER_PROFILE"] = new_profile_str
-    logger.info(
-        "save_profile | in-memory update | categories=%s | size=%d chars",
-        list(profile.keys()), len(new_profile_str),
-    )
 
     api_token = os.getenv("RAILWAY_API_TOKEN")
     project_id = os.getenv("RAILWAY_PROJECT_ID")
@@ -39,13 +44,9 @@ def save_profile(profile: dict) -> dict:
     service_id = os.getenv("RAILWAY_SERVICE_ID")
 
     if not all([api_token, project_id, environment_id, service_id]):
-        logger.info("save_profile | Railway sync skipped (not configured)")
+        logger.info("save_profile | Railway env sync skipped (not configured)")
         return {"ok": True}
 
-    logger.info(
-        "save_profile | Railway sync start | project_id=%s | service_id=%s | payload_size=%d chars",
-        project_id, service_id, len(new_profile_str),
-    )
     mutation = """
     mutation variableUpsert($input: VariableUpsertInput!) {
         variableUpsert(input: $input)
@@ -72,14 +73,8 @@ def save_profile(profile: dict) -> dict:
             timeout=10,
         )
         resp.raise_for_status()
-        logger.info(
-            "save_profile | Railway sync ok | status=%d | duration=%.2fs",
-            resp.status_code, time.monotonic() - t0,
-        )
+        logger.info("save_profile | Railway env sync ok | duration=%.2fs", time.monotonic() - t0)
         return {"ok": True}
     except Exception as exc:
-        logger.warning(
-            "save_profile | Railway sync failed | duration=%.2fs | error=%s",
-            time.monotonic() - t0, exc,
-        )
-        return {"ok": True, "warning": f"Saved in memory but Railway sync failed: {exc}"}
+        logger.warning("save_profile | Railway env sync failed | duration=%.2fs | error=%s", time.monotonic() - t0, exc)
+        return {"ok": True, "warning": f"Saved to DB but Railway env sync failed: {exc}"}
