@@ -343,10 +343,8 @@ def _build_update_user_profile(chat_id: int):
 def _build_send_profile(chat_id: int):
     """Return a closure that sends the current profile JSON to the given chat."""
     def send_profile() -> dict:
-        profile = load_profile()
+        profile = load_profile(chat_id)
         text = f"```json\n{json.dumps(profile, indent=2, ensure_ascii=False)}\n```"
-        logger.info("send_profile | chat_id=%s | payload_chars=%d", chat_id, len(text))
-        t0 = time.monotonic()
         try:
             resp = http_requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
@@ -354,16 +352,9 @@ def _build_send_profile(chat_id: int):
                 timeout=10,
             )
             resp.raise_for_status()
-            logger.info(
-                "send_profile | ok | chat_id=%s | status=%d | duration=%.2fs",
-                chat_id, resp.status_code, time.monotonic() - t0,
-            )
             return {"ok": True}
         except Exception as exc:
-            logger.warning(
-                "send_profile | failed | chat_id=%s | duration=%.2fs | error=%s",
-                chat_id, time.monotonic() - t0, exc,
-            )
+            logger.warning("send_profile failed | chat_id=%s | %s", chat_id, exc)
             return {"ok": False, "error": str(exc)}
     return send_profile
 
@@ -381,28 +372,14 @@ def _build_schedule_message(chat_id: int):
         now = datetime.now(tz)
         if delay_minutes is not None:
             dt = now + timedelta(minutes=delay_minutes)
-            logger.info(
-                "schedule_message | name=%r | mode=delay | delay_minutes=%d | send_at=%s",
-                name, delay_minutes, dt.isoformat(),
-            )
         elif send_at:
             dt = datetime.fromisoformat(send_at)
             if dt.tzinfo is None:
                 dt = tz.localize(dt)
-            logger.info(
-                "schedule_message | name=%r | mode=send_at | raw=%s | resolved=%s",
-                name, send_at, dt.isoformat(),
-            )
         else:
-            logger.warning("schedule_message | name=%r | no timing provided (need delay_minutes or send_at)", name)
             return {"ok": False, "error": "Provide either delay_minutes or send_at."}
-        logger.info(
-            "schedule_message | name=%r | chat_id=%s | message=%r | context=%r",
-            name, chat_id, message, context,
-        )
-        result = add_job(chat_id, message, dt, context, name)
-        logger.info("schedule_message | result=%s", result)
-        return result
+        logger.info("schedule_message | name=%r | send_at=%s | msg=%r", name, dt.isoformat(), message)
+        return add_job(chat_id, message, dt, context, name)
     return schedule_message
 
 
@@ -419,24 +396,15 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
     """Run the calendar agent. Loops until the model stops calling tools."""
     p = f"[req={request_id}] " if request_id else ""
 
-    logger.info("%sAgent started | chat_id=%s | message_len=%d", p, chat_id, len(user_message))
-    logger.info("%sUser message: %s", p, user_message)
-
     tz = pytz.timezone(TIMEZONE)
     now = datetime.now(tz)
     today_str = now.strftime("%Y-%m-%d")
     current_dt = now.strftime("%A, %B %d, %Y %H:%M")
 
     # ---- Context loading ----
-    logger.info("%sCONTEXT_LOAD_START | today=%s | tz=%s | datetime=%s", p, today_str, TIMEZONE, current_dt)
-    t_ctx = time.monotonic()
-
-    logger.info("%sCalendar context | fetching events for %s", p, today_str)
-    t_cal = time.monotonic()
     try:
         today = list_events(today_str)
         events = today.get("events", [])
-        cal_elapsed = time.monotonic() - t_cal
         if events:
             lines = []
             for e in events:
@@ -445,26 +413,13 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
                     line += f"  (attendees: {', '.join(e['attendees'])})"
                 lines.append(line)
             calendar_context = "Today's events:\n" + "\n".join(lines)
-            logger.info(
-                "%sCalendar context | ok | events=%d | duration=%.2fs | events=%s",
-                p, len(events), cal_elapsed,
-                [{"id": e["id"], "title": e["title"], "start": e["start"]} for e in events],
-            )
         else:
             calendar_context = "No events scheduled for today."
-            logger.info("%sCalendar context | ok | events=0 | duration=%.2fs", p, cal_elapsed)
     except Exception as exc:
-        cal_elapsed = time.monotonic() - t_cal
         calendar_context = f"(Could not load today's events: {exc})"
-        logger.warning("%sCalendar context | failed | duration=%.2fs | error=%s", p, cal_elapsed, exc)
+        logger.warning("%sCalendar context failed | %s", p, exc)
 
-    logger.info("%sProfile context | loading", p)
     profile = load_profile(chat_id)
-    profile_keys = list(profile.keys())
-    profile_str = json.dumps(profile, ensure_ascii=False)
-    logger.info("%sProfile context | categories=%s | size=%d chars", p, profile_keys, len(profile_str))
-
-    logger.info("%sScheduled context | fetching pending jobs", p)
     pending = get_pending_jobs()
     if pending:
         pending_lines = "\n".join(
@@ -472,16 +427,9 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
             for j in pending
         )
         scheduled_context = f"Scheduled check-ins:\n{pending_lines}"
-        logger.info(
-            "%sScheduled context | pending=%d | jobs=%s",
-            p, len(pending),
-            [{"name": j.get("name"), "send_at": j["send_at"]} for j in pending],
-        )
     else:
         scheduled_context = "No check-ins scheduled."
-        logger.info("%sScheduled context | pending=0", p)
 
-    logger.info("%sActivity context | loading recent activities", p)
     try:
         from app.database import get_recent_activities
         recent_acts = get_recent_activities(chat_id, limit=10)
@@ -493,13 +441,9 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
             activity_context = f"Recent logged activities:\n{act_lines}"
         else:
             activity_context = "No activities logged yet."
-        logger.info("%sActivity context | %d records", p, len(recent_acts))
     except Exception as exc:
         activity_context = "(Could not load activity log)"
-        logger.warning("%sActivity context | failed | error=%s", p, exc)
-
-    ctx_elapsed = time.monotonic() - t_ctx
-    logger.info("%sCONTEXT_LOAD_END | duration=%.2fs", p, ctx_elapsed)
+        logger.warning("%sActivity context failed | %s", p, exc)
 
     # ---- System prompt construction ----
     system_prompt = (
@@ -539,7 +483,6 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "Use query_database when the user wants to inspect raw records.\n\n"
         "Tone: gentle, supportive, concise. Short messages. Never pushy."
     )
-    logger.info("%sSystem prompt built | total_chars=%d", p, len(system_prompt))
 
     # Build per-call dispatch table (includes chat_id-bound closures)
     from app.database import log_activity, query_stats, search_memory, run_query
@@ -559,19 +502,11 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "query_database": run_query,
     }
 
-    # ---- History management ----
+    # ---- History ----
     if chat_id not in _history:
         _history[chat_id] = deque(maxlen=_HISTORY_LIMIT)
-        logger.info("%sHistory | new conversation | chat_id=%s", p, chat_id)
-
     history = _history[chat_id]
-    history_before = len(history)
     history.append({"role": "user", "content": user_message})
-    logger.info(
-        "%sHistory | chat_id=%s | depth=%d/%d (was %d) | appended user message",
-        p, chat_id, len(history), _HISTORY_LIMIT, history_before,
-    )
-
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
     # ---- Agentic loop ----
@@ -580,152 +515,68 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
 
     while True:
         iteration += 1
-        t_iter = time.monotonic()
 
-        non_system_messages = [m for m in messages if not (isinstance(m, dict) and m.get("role") == "system")]
-
-        logger.info(
-            "%s--- LLM_CALL_START | iter=%d | model=%s | n_context_messages=%d (+1 system) | n_tools=%d | tool_choice=auto ---",
-            p, iteration, OPENAI_MODEL, len(non_system_messages), len(_TOOLS),
-        )
-
-        # Log full system prompt
-        logger.info("%sSYSTEM_PROMPT (chars=%d):\n%s", p, len(system_prompt), system_prompt)
-
-        # Log all non-system messages being sent
-        logger.info("%sCONTEXT_MESSAGES (%d):", p, len(non_system_messages))
-        for i, m in enumerate(non_system_messages, 1):
-            if isinstance(m, dict):
-                role = m.get("role", "?")
-                content = m.get("content") or ""
-                tool_call_id = m.get("tool_call_id", "")
-                if tool_call_id:
-                    logger.info(
-                        "%s  [%d] role=%s | tool_call_id=%s | content=%s",
-                        p, i, role, tool_call_id, content,
-                    )
+        # Log system prompt + full context on first iteration only
+        if iteration == 1:
+            logger.info("%sSYSTEM PROMPT:\n%s", p, system_prompt)
+            non_system = [m for m in messages if not (isinstance(m, dict) and m.get("role") == "system")]
+            logger.info("%sCONTEXT (%d messages):", p, len(non_system))
+            for m in non_system:
+                if isinstance(m, dict):
+                    role = m.get("role", "?")
+                    content = str(m.get("content") or "")
+                    logger.info("%s  [%s] %s", p, role, content[:300])
                 else:
-                    logger.info("%s  [%d] role=%s | content=%s", p, i, role, content)
-            else:
-                # OpenAI message object (assistant turn with possible tool_calls)
-                role = getattr(m, "role", "?")
-                content = getattr(m, "content", "") or ""
-                tool_calls = getattr(m, "tool_calls", None)
-                if tool_calls:
-                    tc_details = [
-                        f"{tc.function.name}({tc.function.arguments})" for tc in tool_calls
-                    ]
-                    logger.info(
-                        "%s  [%d] role=%s | tool_calls=[%s]",
-                        p, i, role, ", ".join(tc_details),
-                    )
-                else:
-                    logger.info("%s  [%d] role=%s | content=%s", p, i, role, content)
+                    role = getattr(m, "role", "?")
+                    tool_calls = getattr(m, "tool_calls", None)
+                    if tool_calls:
+                        logger.info("%s  [%s] tool_calls: %s", p, role, [tc.function.name for tc in tool_calls])
+                    else:
+                        logger.info("%s  [%s] %s", p, role, str(getattr(m, "content", "") or "")[:300])
 
-        # ---- API call ----
-        t_llm = time.monotonic()
         response = _client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=messages,
             tools=_TOOLS,
             tool_choice="auto",
         )
-        llm_elapsed = time.monotonic() - t_llm
 
         usage = response.usage
-        finish_reason = response.choices[0].finish_reason if response.choices else "unknown"
-
-        logger.info(
-            "%sLLM_CALL_END | iter=%d | duration=%.2fs | finish_reason=%s | "
-            "prompt_tokens=%d | completion_tokens=%d | total_tokens=%d",
-            p, iteration, llm_elapsed, finish_reason,
-            usage.prompt_tokens if usage else -1,
-            usage.completion_tokens if usage else -1,
-            usage.total_tokens if usage else -1,
-        )
+        if usage:
+            logger.info(
+                "%sTokens | iter=%d | prompt=%d completion=%d total=%d",
+                p, iteration, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
+            )
 
         msg = response.choices[0].message
         messages.append(msg)
-
-        # Log the raw response
-        response_content = msg.content or ""
-        has_tool_calls = bool(msg.tool_calls)
-        n_tool_calls = len(msg.tool_calls) if msg.tool_calls else 0
-
-        logger.info(
-            "%sLLM_RESPONSE | iter=%d | has_tool_calls=%s | n_tool_calls=%d | content_len=%d",
-            p, iteration, has_tool_calls, n_tool_calls, len(response_content),
-        )
-        if response_content:
-            logger.info("%sLLM_RESPONSE content:\n%s", p, response_content)
 
         # ---- No tool calls → done ----
         if not msg.tool_calls:
             reply = msg.content or "Done."
             history.append({"role": "assistant", "content": reply})
-            total_elapsed = time.monotonic() - t_agent
-            logger.info(
-                "%sAgent finished | total_iterations=%d | total_duration=%.2fs | reply_len=%d",
-                p, iteration, total_elapsed, len(reply),
-            )
-            logger.info("%sFINAL_REPLY:\n%s", p, reply)
+            logger.info("%sFINAL REPLY (%.2fs):\n%s", p, time.monotonic() - t_agent, reply)
             return reply
 
         # ---- Tool calls ----
-        logger.info("%sTOOL_DISPATCH | iter=%d | n_calls=%d", p, iteration, n_tool_calls)
-        for tc_idx, tc in enumerate(msg.tool_calls, 1):
+        for tc in msg.tool_calls:
             fn = tool_dispatch.get(tc.function.name)
             if fn is None:
-                logger.warning(
-                    "%sTOOL_CALL_ERROR | iter=%d | call=%d/%d | tool=%s | tool_call_id=%s | error=unknown tool",
-                    p, iteration, tc_idx, n_tool_calls, tc.function.name, tc.id,
-                )
+                logger.warning("%sUnknown tool: %s", p, tc.function.name)
                 result = {"error": f"Unknown tool: {tc.function.name}"}
             else:
                 try:
                     args = json.loads(tc.function.arguments)
                 except json.JSONDecodeError as exc:
-                    logger.error(
-                        "%sTOOL_CALL_ERROR | iter=%d | call=%d/%d | tool=%s | tool_call_id=%s | error=bad JSON args | raw=%r | exc=%s",
-                        p, iteration, tc_idx, n_tool_calls, tc.function.name, tc.id,
-                        tc.function.arguments, exc,
-                    )
                     result = {"error": f"Could not parse tool arguments: {exc}"}
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": json.dumps(result),
-                    })
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result)})
                     continue
-
-                logger.info(
-                    "%sTOOL_CALL_START | iter=%d | call=%d/%d | tool=%s | tool_call_id=%s | args=%s",
-                    p, iteration, tc_idx, n_tool_calls, tc.function.name, tc.id,
-                    json.dumps(args, ensure_ascii=False),
-                )
-                t_tool = time.monotonic()
+                logger.info("%sCALL → %s | %s", p, tc.function.name, json.dumps(args, ensure_ascii=False)[:300])
                 try:
                     result = fn(**args)
-                    tool_elapsed = time.monotonic() - t_tool
-                    logger.info(
-                        "%sTOOL_CALL_END | iter=%d | call=%d/%d | tool=%s | duration=%.2fs | result=%s",
-                        p, iteration, tc_idx, n_tool_calls, tc.function.name, tool_elapsed,
-                        json.dumps(result, ensure_ascii=False),
-                    )
+                    logger.info("%sRESULT ← %s | %s", p, tc.function.name, json.dumps(result, ensure_ascii=False)[:300])
                 except Exception as tool_exc:
-                    tool_elapsed = time.monotonic() - t_tool
-                    logger.error(
-                        "%sTOOL_CALL_ERROR | iter=%d | call=%d/%d | tool=%s | duration=%.2fs | error=%s",
-                        p, iteration, tc_idx, n_tool_calls, tc.function.name, tool_elapsed,
-                        tool_exc, exc_info=True,
-                    )
+                    logger.error("%sTOOL ERROR %s | %s", p, tc.function.name, tool_exc, exc_info=True)
                     result = {"error": str(tool_exc)}
 
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": json.dumps(result),
-            })
-
-        iter_elapsed = time.monotonic() - t_iter
-        logger.info("%sIteration %d complete | duration=%.2fs", p, iteration, iter_elapsed)
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result)})
