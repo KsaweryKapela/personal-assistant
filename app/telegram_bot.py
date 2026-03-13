@@ -82,6 +82,8 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         logger.info("VOICE_TRANSCRIBE_END | transcribed: %s", text)
 
+        await update.message.reply_text(f"🎤 _{text}_", parse_mode="Markdown")
+
         reply = await asyncio.to_thread(process_message, text, chat_id)
     except Exception as exc:
         logger.error(
