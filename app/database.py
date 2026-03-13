@@ -15,7 +15,8 @@ Railway setup:
 import json
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 import psycopg2
 import psycopg2.extras
@@ -29,6 +30,21 @@ logger = logging.getLogger(__name__)
 _EMBEDDING_MODEL = "text-embedding-3-small"
 _EMBEDDING_DIM = 1536
 _VALID_STATUSES = {"completed", "completed_late", "skipped", "partial"}
+
+
+def _serialize_row(row: dict) -> dict:
+    """Convert a Postgres row dict to JSON-safe types."""
+    result = {}
+    for k, v in row.items():
+        if isinstance(v, (datetime, date)):
+            result[k] = v.isoformat()
+        elif isinstance(v, Decimal):
+            result[k] = float(v)
+        elif isinstance(v, memoryview):
+            result[k] = bytes(v).hex()
+        else:
+            result[k] = v
+    return result
 
 _pool: psycopg2.pool.ThreadedConnectionPool | None = None
 _pool_lock = threading.Lock()
@@ -182,6 +198,7 @@ def save_message(
     content: str,
     message_type: str = "text",
 ) -> None:
+    logger.info("DB save_message | chat_id=%s | role=%s | type=%s | len=%d", chat_id, role, message_type, len(content))
     embedding = _embed(content)
     with _conn() as c:
         cur = c.cursor()
@@ -192,6 +209,7 @@ def save_message(
             """,
             (chat_id, role, content, message_type, embedding),
         )
+    logger.info("DB save_message | ok | chat_id=%s | role=%s", chat_id, role)
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +227,7 @@ def log_activity(
     if status not in _VALID_STATUSES:
         return {"ok": False, "error": f"Invalid status '{status}'. Use: {sorted(_VALID_STATUSES)}"}
 
+    logger.info("DB log_activity | chat_id=%s | category=%s | name=%s | status=%s", chat_id, category, name, status)
     embed_text = f"{name} ({category}) — {status}" + (f" — {notes}" if notes else "")
     embedding = _embed(embed_text)
 
@@ -317,6 +336,7 @@ def search_memory(
     limit: int = 5,
 ) -> dict:
     """Semantic search across messages and activities using cosine similarity."""
+    logger.info("DB search_memory | chat_id=%s | query=%r | limit=%d", chat_id, query[:100], limit)
     embedding = _embed(query)
 
     with _conn() as c:
@@ -345,19 +365,18 @@ def search_memory(
         )
         rows = cur.fetchall()
 
-    return {
-        "query": query,
-        "results": [
-            {
-                "source": r["source"],
-                "text": r["text"],
-                "timestamp": r["timestamp"].isoformat(),
-                "extra": r["extra"],
-                "relevance_score": round(1 - r["distance"], 4),
-            }
-            for r in rows
-        ],
-    }
+    results = [
+        {
+            "source": r["source"],
+            "text": r["text"],
+            "timestamp": r["timestamp"].isoformat() if hasattr(r["timestamp"], "isoformat") else r["timestamp"],
+            "extra": r["extra"],
+            "relevance_score": round(1 - float(r["distance"]), 4),
+        }
+        for r in rows
+    ]
+    logger.info("DB search_memory | ok | results=%d", len(results))
+    return {"query": query, "results": results}
 
 
 # ---------------------------------------------------------------------------
@@ -368,14 +387,17 @@ def run_query(sql: str) -> dict:
     """Execute a SELECT query and return rows. Rejects non-SELECT statements."""
     if not sql.strip().upper().startswith("SELECT"):
         return {"error": "Only SELECT queries are allowed."}
+    logger.info("DB run_query | sql=%r", sql[:200])
     with _conn() as c:
         cur = c.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             cur.execute(sql)
             rows = cur.fetchall()
+            result = [_serialize_row(dict(r)) for r in rows]
+            logger.info("DB run_query | ok | rows=%d", len(result))
             return {
-                "rows": [dict(r) for r in rows],
-                "count": len(rows),
+                "rows": result,
+                "count": len(result),
             }
         except Exception as exc:
             return {"error": str(exc)}
