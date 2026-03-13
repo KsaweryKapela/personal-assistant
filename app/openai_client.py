@@ -8,7 +8,7 @@ import pytz
 import requests as http_requests
 from openai import OpenAI
 
-from app.calendar_client import add_attendees, create_event, delete_event, list_events, update_event
+from app.calendar_client import add_attendees, create_event, create_task, delete_event, list_events, update_event
 from app.config import OPENAI_API_KEY, OPENAI_MODEL, TELEGRAM_BOT_TOKEN, TIMEZONE
 from app.profile_client import load_profile, save_profile
 from app.scheduler import add_job, get_pending_jobs
@@ -113,6 +113,24 @@ _TOOLS = [
                         "items": {"type": "string"},
                         "description": "Optional list of attendee email addresses.",
                     },
+                    "color": {
+                        "type": "string",
+                        "enum": [
+                            "lavender", "sage", "grape", "flamingo", "banana",
+                            "tangerine", "peacock", "graphite", "blueberry", "basil", "tomato",
+                        ],
+                        "description": (
+                            "Optional event color. Pick based on type: "
+                            "workout/sport → flamingo, "
+                            "work/focus/meeting → blueberry, "
+                            "meal/food → banana, "
+                            "social/fun → grape, "
+                            "health/medical → tomato, "
+                            "personal/habit → sage, "
+                            "travel → peacock, "
+                            "other → lavender."
+                        ),
+                    },
                 },
                 "required": ["title", "date", "start_time"],
             },
@@ -171,6 +189,26 @@ _TOOLS = [
                     },
                 },
                 "required": ["event_id", "emails"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_task",
+            "description": (
+                "Create a task in the user's Google Tasks list (visible in Google Calendar). "
+                "Use for to-dos, action items, or things without a fixed time slot. "
+                "For time-specific events, use create_event instead."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Task title."},
+                    "notes": {"type": "string", "description": "Optional notes or details."},
+                    "due_date": {"type": "string", "description": "Optional due date in YYYY-MM-DD format."},
+                },
+                "required": ["title"],
             },
         },
     },
@@ -409,6 +447,7 @@ def _build_schedule_message(chat_id: int):
 _TOOL_DISPATCH_BASE = {
     "list_events": list_events,
     "create_event": create_event,
+    "create_task": create_task,
     "delete_event": delete_event,
     "update_event": update_event,
     "add_attendees": add_attendees,
@@ -516,6 +555,9 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "Use 24-hour HH:MM for times. "
         "If you need to find an event ID before acting on it, call list_events first. "
         "When creating events involving known contacts, auto-add their emails as attendees. "
+        "When creating calendar events, always set a color that matches the event type "
+        "(workout→flamingo, work/meeting→blueberry, meal→banana, social→grape, health→tomato, personal/habit→sage, travel→peacock). "
+        "For time-specific activities, use create_event. For to-dos without a fixed time, use create_task. "
         "When the user shares new personal info, preferences, or contacts (including email addresses), "
         "call update_user_profile once per changed field using action='set' or action='delete'. "
         "Never pass the full profile — only the specific category, key, and value being changed. "
