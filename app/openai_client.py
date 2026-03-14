@@ -616,9 +616,10 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
                 logger.info("%sCALL → %s | %s", p, tc.function.name, json.dumps(args, ensure_ascii=False)[:300])
                 try:
                     result = fn(**args)
-                    logger.info("%sRESULT ← %s | %s", p, tc.function.name, json.dumps(result, ensure_ascii=False)[:300])
                 except Exception as tool_exc:
                     logger.error("%sTOOL ERROR %s | %s", p, tc.function.name, tool_exc, exc_info=True)
                     result = {"error": str(tool_exc)}
+                else:
+                    logger.info("%sRESULT ← %s | %s", p, tc.function.name, json.dumps(result, default=str, ensure_ascii=False)[:300])
 
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result)})
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result, default=str)})
