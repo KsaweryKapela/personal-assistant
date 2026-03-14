@@ -15,7 +15,26 @@ from app.config import GOOGLE_CREDENTIALS_FILE, GOOGLE_TOKEN_FILE, TIMEZONE
 
 logger = logging.getLogger(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/tasks",
+]
+
+# Google Calendar event color mapping
+# colorId 1–11: Lavender, Sage, Grape, Flamingo, Banana, Tangerine, Peacock, Graphite, Blueberry, Basil, Tomato
+_COLOR_MAP = {
+    "lavender": "1",
+    "sage": "2",
+    "grape": "3",
+    "flamingo": "4",
+    "banana": "5",
+    "tangerine": "6",
+    "peacock": "7",
+    "graphite": "8",
+    "blueberry": "9",
+    "basil": "10",
+    "tomato": "11",
+}
 
 _RAILWAY_GQL = "https://backboard.railway.app/graphql/v2"
 
@@ -69,8 +88,8 @@ def _sync_token_to_railway(token_json: str) -> None:
         )
 
 
-def _get_service():
-    """Authenticate and return a Google Calendar service object."""
+def _get_creds():
+    """Return valid Google credentials, refreshing or re-authorizing as needed."""
     creds = None
 
     if os.path.exists(GOOGLE_TOKEN_FILE):
@@ -104,7 +123,17 @@ def _get_service():
     else:
         logger.debug("Google auth | token valid, reusing")
 
-    return build("calendar", "v3", credentials=creds)
+    return creds
+
+
+def _get_service():
+    """Return a Google Calendar service."""
+    return build("calendar", "v3", credentials=_get_creds())
+
+
+def _get_tasks_service():
+    """Return a Google Tasks service."""
+    return build("tasks", "v1", credentials=_get_creds())
 
 
 def list_events(date: str) -> dict:
@@ -176,13 +205,14 @@ def create_event(
     description: str = None,
     location: str = None,
     attendees: list = None,
+    color: str = None,
 ) -> dict:
     """Create a calendar event. Returns event id and link."""
     logger.info(
         "create_event | start | title=%r | date=%s | start_time=%s | duration_minutes=%d | "
-        "location=%r | attendees=%s | has_description=%s",
+        "location=%r | attendees=%s | color=%s | has_description=%s",
         title, date, start_time, duration_minutes,
-        location, attendees, bool(description),
+        location, attendees, color, bool(description),
     )
     t0 = time.monotonic()
     try:
@@ -204,6 +234,10 @@ def create_event(
             body["location"] = location
         if attendees:
             body["attendees"] = [{"email": e} for e in attendees]
+        if color:
+            color_id = _COLOR_MAP.get(color.lower())
+            if color_id:
+                body["colorId"] = color_id
 
         logger.info(
             "create_event | inserting | start=%s | end=%s | body_keys=%s",
@@ -384,4 +418,41 @@ def add_attendees(event_id: str, emails: list) -> dict:
     except Exception as exc:
         elapsed = time.monotonic() - t0
         logger.error("add_attendees | unexpected error | event_id=%s | duration=%.2fs | error=%s", event_id, elapsed, exc)
+        return {"ok": False, "error": str(exc)}
+
+
+def create_task(
+    title: str,
+    notes: str = None,
+    due_date: str = None,
+) -> dict:
+    """Create a task in the user's default Google Tasks list."""
+    logger.info("create_task | start | title=%r | due_date=%s", title, due_date)
+    t0 = time.monotonic()
+    try:
+        service = _get_tasks_service()
+        body: dict = {"title": title}
+        if notes:
+            body["notes"] = notes
+        if due_date:
+            # Tasks API expects RFC 3339 UTC timestamp; use midnight UTC for date-only due dates
+            due_dt = datetime.strptime(due_date, "%Y-%m-%d")
+            body["due"] = due_dt.strftime("%Y-%m-%dT00:00:00.000Z")
+
+        task = service.tasks().insert(tasklist="@default", body=body).execute()
+
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "create_task | ok | task_id=%s | title=%r | duration=%.2fs",
+            task.get("id"), title, elapsed,
+        )
+        return {"ok": True, "task_id": task.get("id"), "title": task.get("title")}
+
+    except HttpError as exc:
+        elapsed = time.monotonic() - t0
+        logger.error("create_task | Google API error | title=%r | duration=%.2fs | error=%s", title, elapsed, exc)
+        return {"ok": False, "error": f"Google Tasks error: {exc}"}
+    except Exception as exc:
+        elapsed = time.monotonic() - t0
+        logger.error("create_task | unexpected error | title=%r | duration=%.2fs | error=%s", title, elapsed, exc)
         return {"ok": False, "error": str(exc)}
