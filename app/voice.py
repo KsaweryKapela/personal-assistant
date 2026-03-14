@@ -35,6 +35,7 @@ async def transcribe(file_id: str, bot: Bot) -> str:
     result = client.audio.transcriptions.create(
         model=_WHISPER_MODEL,
         file=("voice.ogg", bytes(audio_bytes), "audio/ogg"),
+        language="en",
     )
     transcribe_elapsed = time.monotonic() - t_transcribe
 
