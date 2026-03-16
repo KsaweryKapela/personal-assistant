@@ -78,6 +78,30 @@ def main() -> None:
             ),
         )
         logger.info("Daily profile review job registered | chat_id=%s | time=23:30", TELEGRAM_CHAT_ID)
+        add_recurring_daily_job(
+            chat_id=TELEGRAM_CHAT_ID,
+            time_str="23:45",
+            name="daily-activity-review",
+            message=(
+                f"[DAILY ACTIVITY REVIEW — AUTOMATED TASK]\n"
+                f"Step 1: Fetch today's logged activities using query_database with this SQL: "
+                f"SELECT id, category, name, status, notes, metadata, timestamp FROM activities "
+                f"WHERE chat_id = {TELEGRAM_CHAT_ID} AND timestamp > NOW() - INTERVAL '24 hours' "
+                f"ORDER BY timestamp ASC\n"
+                f"Step 2: Also fetch today's messages to understand what the user actually did: "
+                f"SELECT role, content, timestamp FROM messages WHERE chat_id = {TELEGRAM_CHAT_ID} "
+                f"AND timestamp > NOW() - INTERVAL '24 hours' ORDER BY timestamp ASC\n"
+                f"Step 3: Cross-reference the activities against the conversation. Check for: "
+                f"wrong status (e.g. marked completed but user said they skipped), missing activities "
+                f"(user mentioned doing something that was never logged), duplicate entries, "
+                f"inaccurate names or categories, missing notes that would add useful context.\n"
+                f"Step 4: Fix everything — use update_activity for corrections, delete_activity for "
+                f"duplicates or mistakes, log_activity for anything that was missed.\n"
+                f"Step 5: Send the user a concise summary of what was found and what was fixed. "
+                f"If everything looks correct, just say so briefly."
+            ),
+        )
+        logger.info("Daily activity review job registered | chat_id=%s | time=23:45", TELEGRAM_CHAT_ID)
     else:
         logger.info("Daily profile review disabled (TELEGRAM_CHAT_ID not set)")
 
