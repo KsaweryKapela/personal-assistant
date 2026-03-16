@@ -15,8 +15,8 @@ import sys
 
 from telegram import Update
 
-from app.config import LOG_BOT_TOKEN, LOG_CHAT_ID, OPENAI_MODEL, PORT, TIMEZONE, WEBHOOK_URL
-from app.scheduler import start as start_scheduler
+from app.config import LOG_BOT_TOKEN, LOG_CHAT_ID, OPENAI_MODEL, PORT, TELEGRAM_CHAT_ID, TIMEZONE, WEBHOOK_URL
+from app.scheduler import add_recurring_daily_job, start as start_scheduler
 from app.telegram_bot import build_app
 
 logging.basicConfig(
@@ -57,6 +57,30 @@ def main() -> None:
     init_db()
 
     start_scheduler()
+
+    if TELEGRAM_CHAT_ID:
+        add_recurring_daily_job(
+            chat_id=TELEGRAM_CHAT_ID,
+            time_str="23:30",
+            name="daily-profile-review",
+            message=(
+                f"[DAILY PROFILE REVIEW — AUTOMATED TASK]\n"
+                f"Step 1: Fetch today's full conversation using query_database with this SQL: "
+                f"SELECT role, content, timestamp FROM messages WHERE chat_id = {TELEGRAM_CHAT_ID} "
+                f"AND timestamp > NOW() - INTERVAL '24 hours' ORDER BY timestamp ASC\n"
+                f"Step 2: Read every message carefully. Cross-reference with the current user profile.\n"
+                f"Step 3: For every new fact, preference, habit, goal, mood pattern, opinion, "
+                f"or personality trait revealed today that isn't already captured in the profile, "
+                f"call update_user_profile to record it. Use search_memory to verify something "
+                f"isn't already stored before adding it.\n"
+                f"Step 4: Send the user a short, direct summary — what you learned about them today "
+                f"and exactly which profile fields were updated. Be specific."
+            ),
+        )
+        logger.info("Daily profile review job registered | chat_id=%s | time=23:30", TELEGRAM_CHAT_ID)
+    else:
+        logger.info("Daily profile review disabled (TELEGRAM_CHAT_ID not set)")
+
     app = build_app()
 
     if WEBHOOK_URL:

@@ -24,5 +24,10 @@ PORT: int = int(os.getenv("PORT", "8080"))
 LOG_BOT_TOKEN: str | None = os.getenv("LOG_BOT_TOKEN")
 LOG_CHAT_ID: str | None = os.getenv("LOG_CHAT_ID")
 
+# Your personal Telegram chat ID — used for recurring automated tasks (daily profile review etc.)
+# Find it by messaging @userinfobot on Telegram.
+_chat_id_raw = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_CHAT_ID: int | None = int(_chat_id_raw) if _chat_id_raw else None
+
 # PostgreSQL — auto-injected by Railway when a Postgres service is in the same project
 DATABASE_URL: str = _require("DATABASE_URL")

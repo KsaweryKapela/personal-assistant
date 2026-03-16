@@ -74,6 +74,39 @@ def add_job(chat_id: int, message: str, send_at: datetime, context: str = "", na
     return {"ok": True, "job_id": job["id"], "send_at": job["send_at"]}
 
 
+def add_recurring_daily_job(chat_id: int, message: str, time_str: str, name: str) -> None:
+    """Register a daily recurring job. No-op if a job with this name already exists (idempotent on restart)."""
+    with _lock:
+        if any(j.get("name") == name for j in _jobs):
+            logger.info("Recurring job already registered | name=%r", name)
+            return
+
+    import pytz
+    from datetime import timedelta
+    from app.config import TIMEZONE
+
+    tz = pytz.timezone(TIMEZONE)
+    h, m = map(int, time_str.split(":"))
+    now = datetime.now(tz)
+    next_run = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    if next_run <= now:
+        next_run += timedelta(days=1)
+
+    job = {
+        "id": str(uuid.uuid4()),
+        "chat_id": chat_id,
+        "name": name,
+        "message": message,
+        "send_at": next_run.isoformat(),
+        "context": "",
+        "repeat_daily_at": time_str,
+    }
+    with _lock:
+        _jobs.append(job)
+        _save_jobs()
+    logger.info("Recurring job registered | name=%r | first_run=%s", name, next_run.isoformat())
+
+
 # ---------------------------------------------------------------------------
 # Background thread
 # ---------------------------------------------------------------------------
@@ -99,6 +132,25 @@ def _send(chat_id: int, text: str, job_id: str) -> None:
         )
 
 
+def _reschedule_daily(job: dict) -> None:
+    """Re-add a recurring daily job for its next occurrence (tomorrow at the same time)."""
+    import pytz
+    from datetime import timedelta
+    from app.config import TIMEZONE
+
+    tz = pytz.timezone(TIMEZONE)
+    time_str = job["repeat_daily_at"]
+    h, m = map(int, time_str.split(":"))
+    now = datetime.now(tz)
+    next_run = now.replace(hour=h, minute=m, second=0, microsecond=0) + timedelta(days=1)
+
+    new_job = {**job, "id": str(uuid.uuid4()), "send_at": next_run.isoformat()}
+    with _lock:
+        _jobs.append(new_job)
+        _save_jobs()
+    logger.info("Scheduler recurring | rescheduled | name=%r | next_run=%s", job.get("name"), next_run.isoformat())
+
+
 def _run_job(job: dict) -> None:
     """Prompt the AI with the scheduled message and send its response to the user."""
     from app.assistant import process_message  # lazy import to avoid circular dependency
@@ -118,6 +170,9 @@ def _run_job(job: dict) -> None:
             "Scheduler job | AI error | job_id=%s | chat_id=%s | error=%s",
             job_id, chat_id, exc, exc_info=True,
         )
+    finally:
+        if job.get("repeat_daily_at"):
+            _reschedule_daily(job)
 
 
 def _tick() -> None:
