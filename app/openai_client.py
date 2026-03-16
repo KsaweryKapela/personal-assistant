@@ -487,7 +487,6 @@ def _build_schedule_message(chat_id: int):
                 dt = tz.localize(dt)
         else:
             return {"ok": False, "error": "Provide either delay_minutes or send_at."}
-        logger.info("schedule_message | name=%r | send_at=%s | msg=%r", name, dt.isoformat(), message)
         return add_job(chat_id, message, dt, context, name)
     return schedule_message
 
@@ -629,30 +628,20 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
     history.append({"role": "user", "content": user_message})
     messages = [{"role": "system", "content": system_prompt}] + list(history)
 
+    # ---- Log full LLM input ----
+    history_msgs = [m for m in messages if isinstance(m, dict) and m.get("role") != "system"]
+    history_text = "\n".join(f"[{m['role']}] {m['content']}" for m in history_msgs) or "(none)"
+    logger.info(
+        "%s=== LLM INPUT ===\n--- SYSTEM PROMPT ---\n%s\n--- CONVERSATION HISTORY (%d messages) ---\n%s",
+        p, system_prompt, len(history_msgs), history_text,
+    )
+
     # ---- Agentic loop ----
     iteration = 0
     t_agent = time.monotonic()
 
     while True:
         iteration += 1
-
-        # Log system prompt + full context on first iteration only
-        if iteration == 1:
-            logger.info("%sSYSTEM PROMPT:\n%s", p, system_prompt)
-            non_system = [m for m in messages if not (isinstance(m, dict) and m.get("role") == "system")]
-            logger.info("%sCONTEXT (%d messages):", p, len(non_system))
-            for m in non_system:
-                if isinstance(m, dict):
-                    role = m.get("role", "?")
-                    content = str(m.get("content") or "")
-                    logger.info("%s  [%s] %s", p, role, content[:300])
-                else:
-                    role = getattr(m, "role", "?")
-                    tool_calls = getattr(m, "tool_calls", None)
-                    if tool_calls:
-                        logger.info("%s  [%s] tool_calls: %s", p, role, [tc.function.name for tc in tool_calls])
-                    else:
-                        logger.info("%s  [%s] %s", p, role, str(getattr(m, "content", "") or "")[:300])
 
         response = _client.chat.completions.create(
             model=OPENAI_MODEL,
@@ -675,7 +664,7 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         if not msg.tool_calls:
             reply = msg.content or "Done."
             history.append({"role": "assistant", "content": reply})
-            logger.info("%sFINAL REPLY (%.2fs):\n%s", p, time.monotonic() - t_agent, reply)
+            logger.info("%s=== FINAL REPLY (%.2fs) ===\n%s", p, time.monotonic() - t_agent, reply)
             return reply
 
         # ---- Tool calls ----
@@ -691,13 +680,21 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
                     result = {"error": f"Could not parse tool arguments: {exc}"}
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result)})
                     continue
-                logger.info("%sCALL → %s | %s", p, tc.function.name, json.dumps(args, ensure_ascii=False)[:300])
+                logger.info(
+                    "%s=== TOOL CALL [iter=%d] ===\n%s\n%s",
+                    p, iteration, tc.function.name,
+                    json.dumps(args, indent=2, ensure_ascii=False),
+                )
                 try:
                     result = fn(**args)
                 except Exception as tool_exc:
                     logger.error("%sTOOL ERROR %s | %s", p, tc.function.name, tool_exc, exc_info=True)
                     result = {"error": str(tool_exc)}
                 else:
-                    logger.info("%sRESULT ← %s | %s", p, tc.function.name, json.dumps(result, default=str, ensure_ascii=False)[:300])
+                    logger.info(
+                        "%s=== TOOL RESULT [%s] ===\n%s",
+                        p, tc.function.name,
+                        json.dumps(result, default=str, indent=2, ensure_ascii=False),
+                    )
 
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result, default=str)})

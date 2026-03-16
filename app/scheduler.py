@@ -30,22 +30,13 @@ _lock = threading.Lock()
 
 def _load_jobs() -> list[dict]:
     if os.path.exists(_SCHEDULER_FILE):
-        logger.info("Scheduler storage | loading jobs from %s", _SCHEDULER_FILE)
         try:
             with open(_SCHEDULER_FILE) as f:
                 jobs = json.load(f)
             logger.info("Scheduler storage | loaded %d job(s)", len(jobs))
-            for job in jobs:
-                logger.info(
-                    "Scheduler storage | job | id=%s | name=%r | chat_id=%s | send_at=%s | message=%r",
-                    job.get("id"), job.get("name"), job.get("chat_id"),
-                    job.get("send_at"), job.get("message", "")[:80],
-                )
             return jobs
         except Exception as exc:
             logger.warning("Scheduler storage | failed to load %s | error=%s", _SCHEDULER_FILE, exc)
-    else:
-        logger.info("Scheduler storage | no file at %s, starting empty", _SCHEDULER_FILE)
     return []
 
 

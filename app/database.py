@@ -44,7 +44,6 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
         with _pool_lock:
             if _pool is None:
                 _pool = psycopg2.pool.ThreadedConnectionPool(1, 10, DATABASE_URL)
-                logger.info("DB connection pool created")
     return _pool
 
 
@@ -133,16 +132,6 @@ def init_db() -> None:
         """)
 
     logger.info("DB init complete | url=%s", DATABASE_URL[:40] + "...")
-    _log_state()
-
-
-def _log_state() -> None:
-    with _conn() as c:
-        cur = c.cursor()
-        for table in ("activities", "messages", "profile"):
-            cur.execute(f"SELECT COUNT(*) FROM {table}")
-            count = cur.fetchone()[0]
-            logger.info("DB state | %s: %d rows", table, count)
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +158,6 @@ def save_profile_to_db(chat_id: int, profile: dict) -> None:
             """,
             (chat_id, json.dumps(profile, ensure_ascii=False)),
         )
-    logger.info("DB profile saved | chat_id=%s", chat_id)
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +216,6 @@ def log_activity(
         )
         ts = cur.fetchone()[0].isoformat()
 
-    logger.info("Activity logged | %s | %s | %s", category, name, status)
     return {"ok": True, "timestamp": ts}
 
 
@@ -331,7 +318,6 @@ def update_activity(
         updated = cur.rowcount
 
     if updated:
-        logger.info("Activity updated | id=%s | chat_id=%s | fields=%s", activity_id, chat_id, list(updates))
         return {"ok": True, "updated_id": activity_id, "fields_changed": list(updates)}
     return {"ok": False, "error": f"No activity with id={activity_id} found for this user."}
 
@@ -346,7 +332,6 @@ def delete_activity(chat_id: int, activity_id: int) -> dict:
         )
         deleted = cur.rowcount
     if deleted:
-        logger.info("Activity deleted | id=%s | chat_id=%s", activity_id, chat_id)
         return {"ok": True, "deleted_id": activity_id}
     return {"ok": False, "error": f"No activity with id={activity_id} found for this user."}
 
