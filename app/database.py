@@ -291,6 +291,51 @@ def query_stats(
     }
 
 
+def update_activity(
+    chat_id: int,
+    activity_id: int,
+    category: str | None = None,
+    name: str | None = None,
+    status: str | None = None,
+    notes: str | None = None,
+    metadata: dict | None = None,
+) -> dict:
+    """Update fields of an existing activity record (scoped to chat_id for safety)."""
+    if status is not None and status not in _VALID_STATUSES:
+        return {"ok": False, "error": f"Invalid status '{status}'. Use: {sorted(_VALID_STATUSES)}"}
+
+    updates = {}
+    if category is not None:
+        updates["category"] = category
+    if name is not None:
+        updates["name"] = name
+    if status is not None:
+        updates["status"] = status
+    if notes is not None:
+        updates["notes"] = notes
+    if metadata is not None:
+        updates["metadata"] = json.dumps(metadata)
+
+    if not updates:
+        return {"ok": False, "error": "No fields provided to update."}
+
+    set_clause = ", ".join(f"{col} = %s" for col in updates)
+    values = list(updates.values()) + [activity_id, chat_id]
+
+    with _conn() as c:
+        cur = c.cursor()
+        cur.execute(
+            f"UPDATE activities SET {set_clause} WHERE id = %s AND chat_id = %s",
+            values,
+        )
+        updated = cur.rowcount
+
+    if updated:
+        logger.info("Activity updated | id=%s | chat_id=%s | fields=%s", activity_id, chat_id, list(updates))
+        return {"ok": True, "updated_id": activity_id, "fields_changed": list(updates)}
+    return {"ok": False, "error": f"No activity with id={activity_id} found for this user."}
+
+
 def delete_activity(chat_id: int, activity_id: int) -> dict:
     """Delete a single activity record by ID (scoped to chat_id for safety)."""
     with _conn() as c:
