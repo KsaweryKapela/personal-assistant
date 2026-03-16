@@ -321,6 +321,48 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "update_activity",
+            "description": (
+                "Edit an existing activity record. Use when the user wants to correct a field "
+                "(e.g. wrong status, name, or notes). Only pass the fields that need changing. "
+                "First use query_database to find the record ID if you don't already have it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "activity_id": {
+                        "type": "integer",
+                        "description": "The numeric ID of the activity to update (from the 'id' column).",
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "New category value.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "New name value.",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["completed", "completed_late", "skipped", "partial"],
+                        "description": "New status value.",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "New notes value.",
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "description": "New metadata object.",
+                    },
+                },
+                "required": ["activity_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "query_stats",
             "description": "Get activity statistics and completion rates for a given period.",
             "parameters": {
@@ -552,18 +594,20 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "Use query_stats when asked about patterns, habits, or progress. "
         "Use search_memory for questions about past events or feelings. "
         "Use query_database when the user wants to inspect raw records. "
-        "Use delete_activity when the user says an activity was logged by mistake or asks to remove it — "
-        "first use query_database to find the record ID if needed.\n\n"
+        "Use delete_activity when the user says an activity was logged by mistake or asks to remove it. "
+        "Use update_activity when the user wants to correct a field (status, name, notes, etc.). "
+        "For both, use query_database first to find the record ID if needed.\n\n"
         "Tone: gentle, supportive, concise. Short messages. Never pushy."
     )
 
     # Build per-call dispatch table (includes chat_id-bound closures)
-    from app.database import log_activity, query_stats, search_memory, run_query, delete_activity
+    from app.database import log_activity, query_stats, search_memory, run_query, delete_activity, update_activity
 
     def _log_activity(**kwargs): return log_activity(chat_id, **kwargs)
     def _query_stats(**kwargs): return query_stats(chat_id, **kwargs)
     def _search_memory(**kwargs): return search_memory(chat_id, **kwargs)
     def _delete_activity(**kwargs): return delete_activity(chat_id, **kwargs)
+    def _update_activity(**kwargs): return update_activity(chat_id, **kwargs)
 
     tool_dispatch = {
         **_TOOL_DISPATCH_BASE,
@@ -572,6 +616,7 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "schedule_message": _build_schedule_message(chat_id),
         "log_activity": _log_activity,
         "delete_activity": _delete_activity,
+        "update_activity": _update_activity,
         "query_stats": _query_stats,
         "search_memory": _search_memory,
         "query_database": run_query,
