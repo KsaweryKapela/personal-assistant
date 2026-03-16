@@ -43,14 +43,16 @@ class TelegramLogHandler(logging.Handler):
     def _worker(self) -> None:
         while True:
             text = self._queue.get()
-            try:
-                http_requests.post(
-                    f"https://api.telegram.org/bot{self._token}/sendMessage",
-                    json={"chat_id": self._chat_id, "text": text[:_TELEGRAM_MAX]},
-                    timeout=10,
-                )
-            except Exception:
-                pass  # Silently drop — we must not recurse into logging
+            chunks = [text[i:i + _TELEGRAM_MAX] for i in range(0, len(text), _TELEGRAM_MAX)]
+            for chunk in chunks:
+                try:
+                    http_requests.post(
+                        f"https://api.telegram.org/bot{self._token}/sendMessage",
+                        json={"chat_id": self._chat_id, "text": chunk},
+                        timeout=10,
+                    )
+                except Exception:
+                    pass  # Silently drop — we must not recurse into logging
 
 
 def _format(record: logging.LogRecord) -> str:

@@ -47,7 +47,7 @@ def _sync_token_to_railway(token_json: str) -> None:
     service_id = os.getenv("RAILWAY_SERVICE_ID")
 
     if not all([api_token, project_id, environment_id, service_id]):
-        logger.info("Railway token sync | skipped (Railway env vars not configured)")
+        logger.debug("Railway token sync | skipped (Railway env vars not configured)")
         return
 
     logger.info("Railway token sync | start | project_id=%s | service_id=%s", project_id, service_id)
@@ -93,10 +93,10 @@ def _get_creds():
     creds = None
 
     if os.path.exists(GOOGLE_TOKEN_FILE):
-        logger.info("Google auth | loading token from %s", GOOGLE_TOKEN_FILE)
+        logger.debug("Google auth | loading token from %s", GOOGLE_TOKEN_FILE)
         creds = Credentials.from_authorized_user_file(GOOGLE_TOKEN_FILE, SCOPES)
     else:
-        logger.info("Google auth | no token file at %s", GOOGLE_TOKEN_FILE)
+        logger.debug("Google auth | no token file at %s", GOOGLE_TOKEN_FILE)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -138,7 +138,6 @@ def _get_tasks_service():
 
 def list_events(date: str) -> dict:
     """List all events for a given date (YYYY-MM-DD)."""
-    logger.info("list_events | start | date=%s", date)
     t0 = time.monotonic()
     try:
         service = _get_service()
@@ -147,11 +146,6 @@ def list_events(date: str) -> dict:
         day = datetime.strptime(date, "%Y-%m-%d")
         start = tz.localize(day.replace(hour=0, minute=0, second=0, microsecond=0))
         end = tz.localize(day.replace(hour=23, minute=59, second=59, microsecond=0))
-
-        logger.info(
-            "list_events | query | calendarId=primary | timeMin=%s | timeMax=%s",
-            start.isoformat(), end.isoformat(),
-        )
 
         result = service.events().list(
             calendarId="primary",
@@ -175,16 +169,7 @@ def list_events(date: str) -> dict:
                 "attendees": [a.get("email") for a in e.get("attendees", [])],
             })
 
-        elapsed = time.monotonic() - t0
-        logger.info(
-            "list_events | ok | date=%s | events=%d | duration=%.2fs",
-            date, len(events), elapsed,
-        )
-        if events:
-            logger.info(
-                "list_events | event_ids=%s",
-                [{"id": e["id"], "title": e["title"]} for e in events],
-            )
+        logger.info("list_events | ok | date=%s | events=%d | duration=%.2fs", date, len(events), time.monotonic() - t0)
         return {"events": events}
 
     except HttpError as exc:
@@ -208,12 +193,6 @@ def create_event(
     color: str = None,
 ) -> dict:
     """Create a calendar event. Returns event id and link."""
-    logger.info(
-        "create_event | start | title=%r | date=%s | start_time=%s | duration_minutes=%d | "
-        "location=%r | attendees=%s | color=%s | has_description=%s",
-        title, date, start_time, duration_minutes,
-        location, attendees, color, bool(description),
-    )
     t0 = time.monotonic()
     try:
         service = _get_service()
@@ -239,10 +218,6 @@ def create_event(
             if color_id:
                 body["colorId"] = color_id
 
-        logger.info(
-            "create_event | inserting | start=%s | end=%s | body_keys=%s",
-            start_dt.isoformat(), end_dt.isoformat(), list(body.keys()),
-        )
         event = service.events().insert(calendarId="primary", body=body).execute()
 
         elapsed = time.monotonic() - t0
@@ -297,18 +272,12 @@ def update_event(
         "title": title, "date": date, "start_time": start_time,
         "duration_minutes": duration_minutes, "description": description, "location": location,
     }.items() if v is not None}
-    logger.info("update_event | start | event_id=%s | fields_to_update=%s", event_id, list(updates.keys()))
     t0 = time.monotonic()
     try:
         service = _get_service()
         tz = pytz.timezone(TIMEZONE)
 
-        logger.info("update_event | fetching current event | event_id=%s", event_id)
         event = service.events().get(calendarId="primary", eventId=event_id).execute()
-        logger.info(
-            "update_event | fetched | title=%r | start=%s",
-            event.get("summary"), event.get("start", {}).get("dateTime"),
-        )
 
         if title is not None:
             event["summary"] = title
@@ -342,10 +311,6 @@ def update_event(
             new_start = tz.localize(new_start)
             new_end = new_start + timedelta(minutes=use_duration)
 
-            logger.info(
-                "update_event | rescheduling | new_start=%s | new_end=%s | duration=%dmin",
-                new_start.isoformat(), new_end.isoformat(), use_duration,
-            )
             event["start"] = {"dateTime": new_start.isoformat(), "timeZone": TIMEZONE}
             event["end"] = {"dateTime": new_end.isoformat(), "timeZone": TIMEZONE}
 
@@ -372,19 +337,12 @@ def update_event(
 
 def add_attendees(event_id: str, emails: list) -> dict:
     """Add one or more attendees (by email) to an existing event."""
-    logger.info("add_attendees | start | event_id=%s | emails=%s", event_id, emails)
     t0 = time.monotonic()
     try:
         service = _get_service()
-        logger.info("add_attendees | fetching event | event_id=%s", event_id)
         event = service.events().get(calendarId="primary", eventId=event_id).execute()
 
         existing = {a.get("email") for a in event.get("attendees", [])}
-        logger.info(
-            "add_attendees | current_attendees=%s | new_emails=%s",
-            list(existing), emails,
-        )
-
         attendees = list(event.get("attendees", []))
         added = []
         already_present = []
@@ -394,9 +352,6 @@ def add_attendees(event_id: str, emails: list) -> dict:
                 added.append(email)
             else:
                 already_present.append(email)
-
-        if already_present:
-            logger.info("add_attendees | skipping already present: %s", already_present)
 
         event["attendees"] = attendees
         updated = service.events().update(
