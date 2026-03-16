@@ -291,6 +291,21 @@ def query_stats(
     }
 
 
+def delete_activity(chat_id: int, activity_id: int) -> dict:
+    """Delete a single activity record by ID (scoped to chat_id for safety)."""
+    with _conn() as c:
+        cur = c.cursor()
+        cur.execute(
+            "DELETE FROM activities WHERE id = %s AND chat_id = %s",
+            (activity_id, chat_id),
+        )
+        deleted = cur.rowcount
+    if deleted:
+        logger.info("Activity deleted | id=%s | chat_id=%s", activity_id, chat_id)
+        return {"ok": True, "deleted_id": activity_id}
+    return {"ok": False, "error": f"No activity with id={activity_id} found for this user."}
+
+
 def get_recent_activities(chat_id: int, limit: int = 10) -> list[dict]:
     """For system prompt context injection."""
     with _conn() as c:
