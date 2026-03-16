@@ -217,7 +217,10 @@ _TOOLS = [
         "function": {
             "name": "schedule_message",
             "description": (
-                "Schedule a proactive message to be sent to the user at a future time. "
+                "Schedule a proactive AI-generated message to the user at a future time. "
+                "At the scheduled time the AI will be prompted with 'message' and will "
+                "compose a fresh, context-aware reply (with calendar, activities, and profile "
+                "all loaded) before sending it to the user. "
                 "Use for check-ins, follow-ups, or reminders. "
                 "Provide either delay_minutes (e.g. 60 for 1 hour from now) "
                 "or send_at (ISO datetime string). Do not spam — a few meaningful "
@@ -228,7 +231,12 @@ _TOOLS = [
                 "properties": {
                     "message": {
                         "type": "string",
-                        "description": "The message to send. Keep it short and friendly.",
+                        "description": (
+                            "The internal prompt/instruction given to the AI at the scheduled time. "
+                            "Write it as a directive, e.g. 'Check in with the user about how their gym "
+                            "session went. Be warm and brief.' The AI will read the current context and "
+                            "craft the actual message — do NOT write the final user-facing text here."
+                        ),
                     },
                     "delay_minutes": {
                         "type": "integer",

@@ -108,6 +108,27 @@ def _send(chat_id: int, text: str, job_id: str) -> None:
         )
 
 
+def _run_job(job: dict) -> None:
+    """Prompt the AI with the scheduled message and send its response to the user."""
+    from app.assistant import process_message  # lazy import to avoid circular dependency
+
+    chat_id = job["chat_id"]
+    prompt = job["message"]
+    job_id = job["id"]
+    logger.info(
+        "Scheduler job | prompting AI | job_id=%s | chat_id=%s | prompt=%r",
+        job_id, chat_id, prompt[:80],
+    )
+    try:
+        reply = process_message(prompt, chat_id=chat_id, message_type="scheduled")
+        _send(chat_id, reply, job_id)
+    except Exception as exc:
+        logger.error(
+            "Scheduler job | AI error | job_id=%s | chat_id=%s | error=%s",
+            job_id, chat_id, exc, exc_info=True,
+        )
+
+
 def _tick() -> None:
     now = datetime.now(timezone.utc)
     with _lock:
@@ -125,7 +146,7 @@ def _tick() -> None:
             [{"id": j["id"], "name": j.get("name"), "chat_id": j["chat_id"]} for j in due],
         )
         for job in due:
-            _send(job["chat_id"], job["message"], job["id"])
+            _run_job(job)
     else:
         logger.debug("Scheduler tick | due=0 | remaining=%d", remaining)
 
