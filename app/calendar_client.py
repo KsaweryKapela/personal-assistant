@@ -92,9 +92,28 @@ def _get_creds():
     """Return valid Google credentials, refreshing or re-authorizing as needed."""
     creds = None
 
+    # Bootstrap for Railway: if no local token file but env var was synced, restore it
+    if not os.path.exists(GOOGLE_TOKEN_FILE):
+        token_json_env = os.getenv("GOOGLE_TOKEN_JSON")
+        if token_json_env:
+            with open(GOOGLE_TOKEN_FILE, "w") as fh:
+                fh.write(token_json_env)
+            logger.info("Google auth | token restored from GOOGLE_TOKEN_JSON env var")
+
     if os.path.exists(GOOGLE_TOKEN_FILE):
         logger.debug("Google auth | loading token from %s", GOOGLE_TOKEN_FILE)
         creds = Credentials.from_authorized_user_file(GOOGLE_TOKEN_FILE, SCOPES)
+
+        # If the stored token is missing required scopes (e.g. Tasks scope added after initial auth),
+        # discard it so the OAuth flow runs again with the full SCOPES list.
+        if creds and creds.scopes:
+            missing = [s for s in SCOPES if s not in creds.scopes]
+            if missing:
+                logger.warning(
+                    "Google auth | token missing scopes %s — clearing token to force re-auth", missing
+                )
+                creds = None
+                os.remove(GOOGLE_TOKEN_FILE)
     else:
         logger.debug("Google auth | no token file at %s", GOOGLE_TOKEN_FILE)
 
