@@ -300,6 +300,27 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "delete_activity",
+            "description": (
+                "Delete an activity record from the database by its ID. "
+                "Use when the user says a logged activity was a mistake or wants it removed. "
+                "First use query_database to find the record ID if you don't already have it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "activity_id": {
+                        "type": "integer",
+                        "description": "The numeric ID of the activity to delete (from the 'id' column).",
+                    },
+                },
+                "required": ["activity_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "query_stats",
             "description": "Get activity statistics and completion rates for a given period.",
             "parameters": {
@@ -530,16 +551,19 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "Always call log_activity when the user reports on an activity (completed, skipped, late, partial). "
         "Use query_stats when asked about patterns, habits, or progress. "
         "Use search_memory for questions about past events or feelings. "
-        "Use query_database when the user wants to inspect raw records.\n\n"
+        "Use query_database when the user wants to inspect raw records. "
+        "Use delete_activity when the user says an activity was logged by mistake or asks to remove it — "
+        "first use query_database to find the record ID if needed.\n\n"
         "Tone: gentle, supportive, concise. Short messages. Never pushy."
     )
 
     # Build per-call dispatch table (includes chat_id-bound closures)
-    from app.database import log_activity, query_stats, search_memory, run_query
+    from app.database import log_activity, query_stats, search_memory, run_query, delete_activity
 
     def _log_activity(**kwargs): return log_activity(chat_id, **kwargs)
     def _query_stats(**kwargs): return query_stats(chat_id, **kwargs)
     def _search_memory(**kwargs): return search_memory(chat_id, **kwargs)
+    def _delete_activity(**kwargs): return delete_activity(chat_id, **kwargs)
 
     tool_dispatch = {
         **_TOOL_DISPATCH_BASE,
@@ -547,6 +571,7 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "send_profile": _build_send_profile(chat_id),
         "schedule_message": _build_schedule_message(chat_id),
         "log_activity": _log_activity,
+        "delete_activity": _delete_activity,
         "query_stats": _query_stats,
         "search_memory": _search_memory,
         "query_database": run_query,
