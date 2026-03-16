@@ -409,12 +409,52 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "save_daily_summary",
+            "description": (
+                "Save (or overwrite) the daily summary record for a given date. "
+                "Call this at the end of the daily summary job after computing all stats. "
+                "All fields except date are optional — only pass what you have."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string", "description": "The date being summarised, YYYY-MM-DD."},
+                    "wake_time": {"type": "string", "description": "Inferred wake time, HH:MM."},
+                    "sleep_time": {"type": "string", "description": "Inferred sleep/last-active time, HH:MM."},
+                    "sleep_duration_hours": {"type": "number", "description": "Hours of sleep (float)."},
+                    "activities_completed": {"type": "integer"},
+                    "activities_skipped": {"type": "integer"},
+                    "activities_partial": {"type": "integer"},
+                    "activities_total": {"type": "integer"},
+                    "completion_rate_pct": {"type": "integer", "description": "0–100."},
+                    "workout_done": {"type": "boolean"},
+                    "deep_work_minutes": {"type": "integer"},
+                    "mood_score": {"type": "integer", "description": "1–10."},
+                    "energy_score": {"type": "integer", "description": "1–10."},
+                    "stress_score": {"type": "integer", "description": "1–10."},
+                    "overall_score": {"type": "integer", "description": "1–10 holistic day rating."},
+                    "highlights": {"type": "string", "description": "Key wins or good moments."},
+                    "challenges": {"type": "string", "description": "What was hard or didn't go well."},
+                    "summary": {"type": "string", "description": "2–3 sentence plain-English day overview."},
+                    "metadata": {"type": "object", "description": "Any extra stats that don't fit the schema."},
+                },
+                "required": ["date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "query_database",
             "description": (
                 "Run a read-only SELECT query directly on the database. "
                 "Tables: activities (id, chat_id, timestamp, category, name, status, notes, metadata), "
                 "messages (id, chat_id, timestamp, role, content, message_type), "
-                "profile (chat_id, data, updated_at). "
+                "profile (chat_id, data, updated_at), "
+                "daily_summaries (id, chat_id, date, wake_time, sleep_time, sleep_duration_hours, "
+                "activities_completed, activities_skipped, activities_partial, activities_total, "
+                "completion_rate_pct, workout_done, deep_work_minutes, mood_score, energy_score, "
+                "stress_score, overall_score, highlights, challenges, summary, metadata, created_at). "
                 "Use this when the user wants to inspect raw records."
             ),
             "parameters": {
@@ -566,7 +606,9 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         f"Every day at 23:30 an automated profile review runs: reads the day's messages, "
         f"updates the profile with new insights, and reports what was learned. "
         f"At 23:45 an automated activity review runs: cross-references logged activities against "
-        f"the day's conversation, fixes any errors, and reports what was corrected.\n\n"
+        f"the day's conversation, fixes any errors, and reports what was corrected. "
+        f"At 23:55 an automated daily summary is generated: all stats for the day are computed "
+        f"and saved to the daily_summaries table, then a brief report is sent to the user.\n\n"
         "=== INSTRUCTIONS ===\n"
         "Context injected above is intentionally minimal to preserve the context window. "
         "Use search_memory and query_database proactively whenever you need historical information — "
@@ -617,13 +659,17 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
     )
 
     # Build per-call dispatch table (includes chat_id-bound closures)
-    from app.database import log_activity, query_stats, search_memory, run_query, delete_activity, update_activity
+    from app.database import (
+        log_activity, query_stats, search_memory, run_query,
+        delete_activity, update_activity, save_daily_summary,
+    )
 
     def _log_activity(**kwargs): return log_activity(chat_id, **kwargs)
     def _query_stats(**kwargs): return query_stats(chat_id, **kwargs)
     def _search_memory(**kwargs): return search_memory(chat_id, **kwargs)
     def _delete_activity(**kwargs): return delete_activity(chat_id, **kwargs)
     def _update_activity(**kwargs): return update_activity(chat_id, **kwargs)
+    def _save_daily_summary(**kwargs): return save_daily_summary(chat_id, **kwargs)
 
     tool_dispatch = {
         **_TOOL_DISPATCH_BASE,
@@ -633,6 +679,7 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "log_activity": _log_activity,
         "delete_activity": _delete_activity,
         "update_activity": _update_activity,
+        "save_daily_summary": _save_daily_summary,
         "query_stats": _query_stats,
         "search_memory": _search_memory,
         "query_database": run_query,

@@ -102,6 +102,36 @@ def main() -> None:
             ),
         )
         logger.info("Daily activity review job registered | chat_id=%s | time=23:45", TELEGRAM_CHAT_ID)
+        add_recurring_daily_job(
+            chat_id=TELEGRAM_CHAT_ID,
+            time_str="23:55",
+            name="daily-summary",
+            message=(
+                f"[DAILY SUMMARY — AUTOMATED TASK]\n"
+                f"Compile a full summary for today ({TELEGRAM_CHAT_ID}).\n\n"
+                f"Step 1: Fetch today's activities: SELECT id, category, name, status, notes, metadata, timestamp "
+                f"FROM activities WHERE chat_id = {TELEGRAM_CHAT_ID} AND timestamp > NOW() - INTERVAL '24 hours' "
+                f"ORDER BY timestamp ASC\n\n"
+                f"Step 2: Fetch today's messages: SELECT role, content, timestamp FROM messages "
+                f"WHERE chat_id = {TELEGRAM_CHAT_ID} AND timestamp > NOW() - INTERVAL '24 hours' "
+                f"ORDER BY timestamp ASC\n\n"
+                f"Step 3: Fetch today's calendar events using list_events for today's date.\n\n"
+                f"Step 4: From all the above, compute:\n"
+                f"- wake_time / sleep_time: infer from first and last message timestamps (HH:MM)\n"
+                f"- sleep_duration_hours: calculate if both known\n"
+                f"- activities_completed/skipped/partial/total + completion_rate_pct: count from activities\n"
+                f"- workout_done: true if any workout-category activity is completed or completed_late\n"
+                f"- deep_work_minutes: sum duration from work-category activity metadata where available\n"
+                f"- mood_score / energy_score / stress_score (1–10): infer from conversation tone and content\n"
+                f"- overall_score (1–10): holistic rating of the day\n"
+                f"- highlights: key wins, good moments, things that went well\n"
+                f"- challenges: what was hard, skipped, or didn't go to plan\n"
+                f"- summary: 2–3 sentence plain-English overview of the day\n\n"
+                f"Step 5: Call save_daily_summary with all computed values.\n\n"
+                f"Step 6: Send the user a concise end-of-day report — scores, headline stats, and a one-line summary."
+            ),
+        )
+        logger.info("Daily summary job registered | chat_id=%s | time=23:55", TELEGRAM_CHAT_ID)
     else:
         logger.info("Daily profile review disabled (TELEGRAM_CHAT_ID not set)")
 

@@ -119,6 +119,40 @@ def init_db() -> None:
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS daily_summaries (
+                id                   SERIAL PRIMARY KEY,
+                chat_id              BIGINT      NOT NULL,
+                date                 DATE        NOT NULL,
+                created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+                wake_time            TIME,
+                sleep_time           TIME,
+                sleep_duration_hours NUMERIC(4,2),
+
+                activities_completed INT         NOT NULL DEFAULT 0,
+                activities_skipped   INT         NOT NULL DEFAULT 0,
+                activities_partial   INT         NOT NULL DEFAULT 0,
+                activities_total     INT         NOT NULL DEFAULT 0,
+                completion_rate_pct  INT,
+
+                workout_done         BOOLEAN,
+                deep_work_minutes    INT,
+
+                mood_score           INT         CHECK(mood_score    BETWEEN 1 AND 10),
+                energy_score         INT         CHECK(energy_score  BETWEEN 1 AND 10),
+                stress_score         INT         CHECK(stress_score  BETWEEN 1 AND 10),
+                overall_score        INT         CHECK(overall_score BETWEEN 1 AND 10),
+
+                highlights           TEXT        NOT NULL DEFAULT '',
+                challenges           TEXT        NOT NULL DEFAULT '',
+                summary              TEXT        NOT NULL DEFAULT '',
+
+                metadata             JSONB       NOT NULL DEFAULT '{}',
+
+                UNIQUE (chat_id, date)
+            )
+        """)
         # Indexes for fast vector search
         cur.execute("""
             CREATE INDEX IF NOT EXISTS activities_embedding_idx
@@ -403,6 +437,86 @@ def search_memory(
             for r in rows
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Daily summary
+# ---------------------------------------------------------------------------
+
+def save_daily_summary(
+    chat_id: int,
+    date: str,
+    wake_time: str | None = None,
+    sleep_time: str | None = None,
+    sleep_duration_hours: float | None = None,
+    activities_completed: int = 0,
+    activities_skipped: int = 0,
+    activities_partial: int = 0,
+    activities_total: int = 0,
+    completion_rate_pct: int | None = None,
+    workout_done: bool | None = None,
+    deep_work_minutes: int | None = None,
+    mood_score: int | None = None,
+    energy_score: int | None = None,
+    stress_score: int | None = None,
+    overall_score: int | None = None,
+    highlights: str = "",
+    challenges: str = "",
+    summary: str = "",
+    metadata: dict | None = None,
+) -> dict:
+    """Upsert a daily summary record (one per chat_id + date)."""
+    with _conn() as c:
+        cur = c.cursor()
+        cur.execute(
+            """
+            INSERT INTO daily_summaries (
+                chat_id, date,
+                wake_time, sleep_time, sleep_duration_hours,
+                activities_completed, activities_skipped, activities_partial, activities_total,
+                completion_rate_pct, workout_done, deep_work_minutes,
+                mood_score, energy_score, stress_score, overall_score,
+                highlights, challenges, summary, metadata
+            ) VALUES (
+                %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s, %s
+            )
+            ON CONFLICT (chat_id, date) DO UPDATE SET
+                wake_time            = EXCLUDED.wake_time,
+                sleep_time           = EXCLUDED.sleep_time,
+                sleep_duration_hours = EXCLUDED.sleep_duration_hours,
+                activities_completed = EXCLUDED.activities_completed,
+                activities_skipped   = EXCLUDED.activities_skipped,
+                activities_partial   = EXCLUDED.activities_partial,
+                activities_total     = EXCLUDED.activities_total,
+                completion_rate_pct  = EXCLUDED.completion_rate_pct,
+                workout_done         = EXCLUDED.workout_done,
+                deep_work_minutes    = EXCLUDED.deep_work_minutes,
+                mood_score           = EXCLUDED.mood_score,
+                energy_score         = EXCLUDED.energy_score,
+                stress_score         = EXCLUDED.stress_score,
+                overall_score        = EXCLUDED.overall_score,
+                highlights           = EXCLUDED.highlights,
+                challenges           = EXCLUDED.challenges,
+                summary              = EXCLUDED.summary,
+                metadata             = EXCLUDED.metadata,
+                created_at           = NOW()
+            """,
+            (
+                chat_id, date,
+                wake_time, sleep_time, sleep_duration_hours,
+                activities_completed, activities_skipped, activities_partial, activities_total,
+                completion_rate_pct, workout_done, deep_work_minutes,
+                mood_score, energy_score, stress_score, overall_score,
+                highlights, challenges, summary,
+                json.dumps(metadata or {}),
+            ),
+        )
+    return {"ok": True, "date": date}
 
 
 # ---------------------------------------------------------------------------
