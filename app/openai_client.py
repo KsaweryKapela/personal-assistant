@@ -9,7 +9,16 @@ import requests as http_requests
 from openai import OpenAI
 
 from app.calendar_client import add_attendees, create_event, create_task, delete_event, list_events, update_event
-from app.config import OPENAI_API_KEY, OPENAI_MODEL, TELEGRAM_BOT_TOKEN, TIMEZONE
+from app.config import (
+    DAILY_ACTIVITY_REVIEW_TIME,
+    DAILY_MORNING_CHECK_TIME,
+    DAILY_PROFILE_REVIEW_TIME,
+    DAILY_SUMMARY_TIME,
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+    TELEGRAM_BOT_TOKEN,
+    TIMEZONE,
+)
 from app.profile_client import load_profile, save_profile
 from app.scheduler import add_job, get_pending_jobs
 
@@ -292,6 +301,14 @@ _TOOLS = [
                         "type": "object",
                         "description": "Optional structured data, e.g. {\"duration_minutes\": 60, \"weight_kg\": 100}.",
                     },
+                    "start_time": {
+                        "type": "string",
+                        "description": "Optional start time of the activity in HH:MM (24h), e.g. '08:00'.",
+                    },
+                    "end_time": {
+                        "type": "string",
+                        "description": "Optional end time of the activity in HH:MM (24h), e.g. '09:30'.",
+                    },
                 },
                 "required": ["category", "name", "status"],
             },
@@ -354,6 +371,14 @@ _TOOLS = [
                     "metadata": {
                         "type": "object",
                         "description": "New metadata object.",
+                    },
+                    "start_time": {
+                        "type": "string",
+                        "description": "New start time in HH:MM (24h).",
+                    },
+                    "end_time": {
+                        "type": "string",
+                        "description": "New end time in HH:MM (24h).",
                     },
                 },
                 "required": ["activity_id"],
@@ -491,13 +516,15 @@ def _build_update_user_profile(chat_id: int):
 
 def _build_send_profile(chat_id: int):
     """Return a closure that sends the current profile JSON to the given chat."""
+    import html as _html
     def send_profile() -> dict:
         profile = load_profile(chat_id)
-        text = f"```json\n{json.dumps(profile, indent=2, ensure_ascii=False)}\n```"
+        json_str = json.dumps(profile, indent=2, ensure_ascii=False)
+        text = f"<pre>{_html.escape(json_str)}</pre>"
         try:
             resp = http_requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-                json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
                 timeout=10,
             )
             resp.raise_for_status()
@@ -603,12 +630,12 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         f"{calendar_context}\n"
         f"{scheduled_context}\n"
         f"{activity_context}\n"
-        f"Every day at 23:30 an automated profile review runs: reads the day's messages, "
-        f"updates the profile with new insights, and reports what was learned. "
-        f"At 23:45 an automated activity review runs: cross-references logged activities against "
-        f"the day's conversation, fixes any errors, and reports what was corrected. "
-        f"At 23:55 an automated daily summary is generated: all stats for the day are computed "
-        f"and saved to the daily_summaries table, then a brief report is sent to the user.\n\n"
+        f"Automated daily jobs (all times in {TIMEZONE}):\n"
+        f"- {DAILY_MORNING_CHECK_TIME}: morning check-in — asks wake time, mood, energy, and today's plans. "
+        f"Saves wake_time to daily_summaries and logs a 'wake up' activity.\n"
+        f"- {DAILY_PROFILE_REVIEW_TIME}: profile review — reads today's messages, updates the user profile with new insights.\n"
+        f"- {DAILY_ACTIVITY_REVIEW_TIME}: activity review — cross-references logged activities against the conversation, fixes errors.\n"
+        f"- {DAILY_SUMMARY_TIME}: daily summary — computes all day stats, saves to daily_summaries, sends a report.\n\n"
         "=== INSTRUCTIONS ===\n"
         "Context injected above is intentionally minimal to preserve the context window. "
         "Use search_memory and query_database proactively whenever you need historical information — "
@@ -644,8 +671,9 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "call log_activity to record it AND save key insights to the profile using update_user_profile.\n\n"
         "=== ACTIVITY LOGGING ===\n"
         "Always call log_activity when the user reports on an activity (completed, skipped, late, partial). "
+        "Always include start_time and end_time in HH:MM when the user mentions or implies when something started or ended. "
         "Use delete_activity when the user says an activity was logged by mistake or asks to remove it. "
-        "Use update_activity when the user wants to correct a field (status, name, notes, etc.). "
+        "Use update_activity when the user wants to correct a field (status, name, notes, start_time, end_time, etc.). "
         "For both, use query_database first to find the record ID if needed.\n\n"
         "=== CREATIVE THINKING ===\n"
         "When the user shares a problem, challenge, or goal, don't just acknowledge it — analyse it. "
@@ -655,7 +683,9 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "=== COMMUNICATION STYLE ===\n"
         "Never ask follow-up questions. Make a judgment call and act or respond. "
         "If you need more context, use your tools to find it — never ask the user. "
-        "Be direct and decisive. Keep messages short. No filler phrases."
+        "Be direct and decisive. Keep messages short. No filler phrases. "
+        "Do not use any markdown formatting — no **bold**, no _italic_, no headers, no bullet dashes, no backticks. "
+        "Plain text only. Telegram does not render markdown and it will appear as raw symbols."
     )
 
     # Build per-call dispatch table (includes chat_id-bound closures)

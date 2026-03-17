@@ -153,6 +153,10 @@ def init_db() -> None:
                 UNIQUE (chat_id, date)
             )
         """)
+        # Migrate existing activities table — add time columns if not present
+        cur.execute("ALTER TABLE activities ADD COLUMN IF NOT EXISTS start_time TIME")
+        cur.execute("ALTER TABLE activities ADD COLUMN IF NOT EXISTS end_time TIME")
+
         # Indexes for fast vector search
         cur.execute("""
             CREATE INDEX IF NOT EXISTS activities_embedding_idx
@@ -227,6 +231,8 @@ def log_activity(
     status: str,
     notes: str = "",
     metadata: dict | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
 ) -> dict:
     if status not in _VALID_STATUSES:
         return {"ok": False, "error": f"Invalid status '{status}'. Use: {sorted(_VALID_STATUSES)}"}
@@ -239,13 +245,14 @@ def log_activity(
         cur.execute(
             """
             INSERT INTO activities
-                (chat_id, category, name, status, notes, metadata, embedding)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (chat_id, category, name, status, notes, metadata, embedding, start_time, end_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING timestamp
             """,
             (
                 chat_id, category, name, status, notes,
                 json.dumps(metadata or {}), embedding,
+                start_time, end_time,
             ),
         )
         ts = cur.fetchone()[0].isoformat()
@@ -320,6 +327,8 @@ def update_activity(
     status: str | None = None,
     notes: str | None = None,
     metadata: dict | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
 ) -> dict:
     """Update fields of an existing activity record (scoped to chat_id for safety)."""
     if status is not None and status not in _VALID_STATUSES:
@@ -336,6 +345,10 @@ def update_activity(
         updates["notes"] = notes
     if metadata is not None:
         updates["metadata"] = json.dumps(metadata)
+    if start_time is not None:
+        updates["start_time"] = start_time
+    if end_time is not None:
+        updates["end_time"] = end_time
 
     if not updates:
         return {"ok": False, "error": "No fields provided to update."}
