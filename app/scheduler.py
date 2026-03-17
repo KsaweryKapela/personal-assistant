@@ -13,10 +13,6 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-import requests as http_requests
-
-from app.config import TELEGRAM_BOT_TOKEN
-
 logger = logging.getLogger(__name__)
 
 _SCHEDULER_FILE = "scheduler.json"
@@ -116,24 +112,14 @@ def add_recurring_daily_job(chat_id: int, message: str, time_str: str, name: str
 # ---------------------------------------------------------------------------
 
 def _send(chat_id: int, text: str, job_id: str) -> None:
+    from app.utils import send_telegram
     logger.info("Scheduler delivery | start | job_id=%s | chat_id=%s | message_len=%d", job_id, chat_id, len(text))
     t0 = time.monotonic()
-    try:
-        resp = http_requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        logger.info(
-            "Scheduler delivery | ok | job_id=%s | chat_id=%s | status=%d | duration=%.2fs",
-            job_id, chat_id, resp.status_code, time.monotonic() - t0,
-        )
-    except Exception as exc:
-        logger.warning(
-            "Scheduler delivery | failed | job_id=%s | chat_id=%s | duration=%.2fs | error=%s",
-            job_id, chat_id, time.monotonic() - t0, exc,
-        )
+    result = send_telegram(chat_id, text)
+    if result["ok"]:
+        logger.info("Scheduler delivery | ok | job_id=%s | chat_id=%s | duration=%.2fs", job_id, chat_id, time.monotonic() - t0)
+    else:
+        logger.warning("Scheduler delivery | failed | job_id=%s | chat_id=%s | duration=%.2fs | error=%s", job_id, chat_id, time.monotonic() - t0, result.get("error"))
 
 
 def _reschedule_daily(job: dict) -> None:
