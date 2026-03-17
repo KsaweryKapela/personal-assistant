@@ -665,7 +665,9 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "=== COMMUNICATION STYLE ===\n"
         "Never ask follow-up questions. Make a judgment call and act or respond. "
         "If you need more context, use your tools to find it — never ask the user. "
-        "Be direct and decisive. Keep messages short. No filler phrases."
+        "Be direct and decisive. Keep messages short. No filler phrases. "
+        "Do not use any markdown formatting — no **bold**, no _italic_, no headers, no bullet dashes, no backticks. "
+        "Plain text only. Telegram does not render markdown and it will appear as raw symbols."
     )
 
     # Build per-call dispatch table (includes chat_id-bound closures)
