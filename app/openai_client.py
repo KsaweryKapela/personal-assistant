@@ -8,7 +8,7 @@ import pytz
 import requests as http_requests
 from openai import OpenAI
 
-from app.calendar_client import add_attendees, create_event, create_task, delete_event, list_events, update_event
+from app.calendar_client import add_attendees, create_event, create_task, delete_event, delete_task, list_events, update_event
 from app.config import (
     DAILY_ACTIVITY_REVIEW_TIME,
     DAILY_MORNING_CHECK_TIME,
@@ -20,7 +20,7 @@ from app.config import (
     TIMEZONE,
 )
 from app.profile_client import load_profile, save_profile
-from app.scheduler import add_job, get_pending_jobs
+from app.scheduler import add_job, get_pending_jobs, remove_job
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +224,23 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "delete_task",
+            "description": (
+                "Delete a task from the user's Google Tasks list by its ID. "
+                "Use list_events or ask the user for the task ID if you don't have it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "The Google Tasks task ID to delete."},
+                },
+                "required": ["task_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "schedule_message",
             "description": (
                 "Schedule a proactive AI-generated message to the user at a future time. "
@@ -265,6 +282,25 @@ _TOOLS = [
                     },
                 },
                 "required": ["message", "name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_checkin",
+            "description": (
+                "Cancel (delete) a pending scheduled check-in by its job ID. "
+                "Use the job IDs shown in 'Scheduled check-ins' context. "
+                "Cannot cancel the hardcoded daily system jobs (morning check-in, profile review, "
+                "activity review, daily summary) — only user-created check-ins can be removed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "job_id": {"type": "string", "description": "The job ID to cancel (from the scheduled check-ins list)."},
+                },
+                "required": ["job_id"],
             },
         },
     },
@@ -562,9 +598,11 @@ _TOOL_DISPATCH_BASE = {
     "list_events": list_events,
     "create_event": create_event,
     "create_task": create_task,
+    "delete_task": delete_task,
     "delete_event": delete_event,
     "update_event": update_event,
     "add_attendees": add_attendees,
+    "cancel_checkin": remove_job,
 }
 
 
