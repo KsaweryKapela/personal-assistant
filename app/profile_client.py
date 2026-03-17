@@ -11,22 +11,37 @@ _RAILWAY_GQL = "https://backboard.railway.app/graphql/v2"
 
 
 def load_profile(chat_id: int = 0) -> dict:
-    """Load profile from DB (primary). Falls back to USER_PROFILE env on first run."""
+    """Load profile from DB (primary). Falls back to USER_PROFILE env if DB is missing or empty."""
     from app.database import load_profile_from_db, save_profile_to_db
 
     profile = load_profile_from_db(chat_id)
-    if profile is not None:
+
+    # DB has real data — use it
+    if profile:
         logger.info("load_profile | source=db | chat_id=%s | categories=%s", chat_id, list(profile.keys()))
         return profile
 
-    # First run — migrate from env into DB
+    # DB is missing (None) or empty ({}) — try env var fallback
     raw = os.getenv("USER_PROFILE")
-    if not raw:
-        raise RuntimeError("Missing required environment variable: USER_PROFILE (and no DB record found)")
-    profile = json.loads(raw)
-    save_profile_to_db(chat_id, profile)
-    logger.info("load_profile | source=env (migrated to db) | chat_id=%s | categories=%s", chat_id, list(profile.keys()))
-    return profile
+    env_profile = json.loads(raw) if raw else None
+
+    if env_profile:
+        # Env has data: save it to DB (first-run migration or recovery from data loss)
+        save_profile_to_db(chat_id, env_profile)
+        logger.info(
+            "load_profile | source=env (%s) | chat_id=%s | categories=%s",
+            "migrated" if profile is None else "recovered",
+            chat_id, list(env_profile.keys()),
+        )
+        return env_profile
+
+    # Both DB and env are empty/missing
+    if profile is not None:
+        # DB had {} — genuinely empty profile, return it
+        logger.info("load_profile | source=db (empty) | chat_id=%s", chat_id)
+        return profile
+
+    raise RuntimeError("Missing required environment variable: USER_PROFILE (and no DB record found)")
 
 
 def save_profile(profile: dict, chat_id: int = 0) -> dict:
