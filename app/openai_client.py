@@ -499,13 +499,15 @@ def _build_update_user_profile(chat_id: int):
 
 def _build_send_profile(chat_id: int):
     """Return a closure that sends the current profile JSON to the given chat."""
+    import html as _html
     def send_profile() -> dict:
         profile = load_profile(chat_id)
-        text = f"```json\n{json.dumps(profile, indent=2, ensure_ascii=False)}\n```"
+        json_str = json.dumps(profile, indent=2, ensure_ascii=False)
+        text = f"<pre>{_html.escape(json_str)}</pre>"
         try:
             resp = http_requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-                json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
                 timeout=10,
             )
             resp.raise_for_status()
