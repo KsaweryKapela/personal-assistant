@@ -376,6 +376,26 @@ def add_attendees(event_id: str, emails: list) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def delete_task(task_id: str) -> dict:
+    """Delete a Google Task by ID."""
+    logger.info("delete_task | start | task_id=%s", task_id)
+    t0 = time.monotonic()
+    try:
+        service = _get_tasks_service()
+        service.tasks().delete(tasklist="@default", task=task_id).execute()
+        elapsed = time.monotonic() - t0
+        logger.info("delete_task | ok | task_id=%s | duration=%.2fs", task_id, elapsed)
+        return {"ok": True}
+    except HttpError as exc:
+        elapsed = time.monotonic() - t0
+        logger.error("delete_task | Google API error | task_id=%s | duration=%.2fs | error=%s", task_id, elapsed, exc)
+        return {"ok": False, "error": f"Google Tasks error: {exc}"}
+    except Exception as exc:
+        elapsed = time.monotonic() - t0
+        logger.error("delete_task | unexpected error | task_id=%s | duration=%.2fs | error=%s", task_id, elapsed, exc)
+        return {"ok": False, "error": str(exc)}
+
+
 def create_task(
     title: str,
     notes: str = None,

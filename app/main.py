@@ -10,7 +10,9 @@ or:
     uv run python -m app.main
 """
 
+import json
 import logging
+import os
 import sys
 
 from telegram import Update
@@ -43,6 +45,41 @@ logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
+def _sync_profile_to_db() -> None:
+    """On every startup: ensure USER_PROFILE env var is saved to the DB.
+
+    If the DB row is missing or empty (e.g. after a DB reset), the env var
+    is the source of truth and gets written in. If the DB already has data,
+    nothing changes.
+    """
+    if not TELEGRAM_CHAT_ID:
+        return
+    raw = os.getenv("USER_PROFILE")
+    if not raw:
+        logger.warning("Profile sync | USER_PROFILE env var not set — skipping")
+        return
+    try:
+        env_profile = json.loads(raw)
+    except Exception as exc:
+        logger.warning("Profile sync | USER_PROFILE is not valid JSON | error=%s", exc)
+        return
+
+    from app.database import load_profile_from_db, save_profile_to_db
+
+    db_profile = load_profile_from_db(TELEGRAM_CHAT_ID)
+    if db_profile:
+        logger.info(
+            "Profile sync | DB already has data | chat_id=%s | categories=%s",
+            TELEGRAM_CHAT_ID, list(db_profile.keys()),
+        )
+    else:
+        save_profile_to_db(TELEGRAM_CHAT_ID, env_profile)
+        logger.info(
+            "Profile sync | written to DB from env | chat_id=%s | categories=%s",
+            TELEGRAM_CHAT_ID, list(env_profile.keys()),
+        )
+
+
 def main() -> None:
     logger.info("=" * 60)
     logger.info("Personal Assistant starting up")
@@ -67,6 +104,7 @@ def main() -> None:
 
     from app.database import init_db
     init_db()
+    _sync_profile_to_db()
 
     start_scheduler()
 

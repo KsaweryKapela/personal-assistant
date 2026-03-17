@@ -217,6 +217,24 @@ def get_pending_jobs() -> list[dict]:
         return list(_jobs)
 
 
+# Names of recurring system jobs that cannot be cancelled by the user
+_PROTECTED_JOB_NAMES = {"morning-checkin", "daily-profile-review", "daily-activity-review", "daily-summary"}
+
+
+def remove_job(job_id: str) -> dict:
+    """Cancel a pending scheduled check-in by job ID. Refuses to remove protected system jobs."""
+    with _lock:
+        job = next((j for j in _jobs if j["id"] == job_id), None)
+        if job is None:
+            return {"ok": False, "error": f"No pending job with id={job_id!r}"}
+        if job.get("name") in _PROTECTED_JOB_NAMES:
+            return {"ok": False, "error": f"Job {job['name']!r} is a protected system job and cannot be cancelled."}
+        _jobs.remove(job)
+        _save_jobs()
+    logger.info("remove_job | ok | job_id=%s | name=%r", job_id, job.get("name"))
+    return {"ok": True, "removed": job.get("name")}
+
+
 def start() -> None:
     """Load persisted jobs and start the background thread. Call once at startup."""
     global _jobs
