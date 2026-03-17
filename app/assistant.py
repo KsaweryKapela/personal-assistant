@@ -13,7 +13,7 @@ def process_message(text: str, chat_id: int = 0, message_type: str = "text") -> 
     save_message(chat_id, "user", text, message_type)
 
     try:
-        reply = run_agent(text, chat_id=chat_id, request_id=request_id)
+        reply = run_agent(text, chat_id=chat_id, request_id=request_id, message_type=message_type)
         save_message(chat_id, "assistant", reply)
         return reply
     except Exception as exc:

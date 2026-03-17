@@ -597,7 +597,7 @@ _TOOL_DISPATCH_BASE = {
 }
 
 
-def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
+def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message_type: str = "text") -> str:
     """Run the calendar agent. Loops until the model stops calling tools."""
     p = f"[req={request_id}] " if request_id else ""
 
@@ -719,6 +719,25 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         "Do not use any markdown formatting — no **bold**, no _italic_, no headers, no bullet dashes, no backticks. "
         "Plain text only. Telegram does not render markdown and it will appear as raw symbols."
     )
+
+    if message_type == "scheduled":
+        system_prompt = system_prompt.replace(
+            "=== PROACTIVE BEHAVIOUR ===\n"
+            "You care about the user's wellbeing and help them live a calm, balanced day. "
+            "Use schedule_message to check in proactively — but keep it minimal (2–3 meaningful messages per day max). "
+            "Always check 'Scheduled check-ins' in context before scheduling — do not create duplicates. "
+            "If there are no check-ins scheduled at all, proactively schedule at least one appropriate one. "
+            "Good moments to schedule a check-in:\n"
+            "- After a planned activity (gym, deep work block, meeting) — ask how it went.\n"
+            "- Mid-afternoon if the day looks heavy — suggest a short break or walk.\n"
+            "- Evening (~20:00) — a brief reflection on the day.\n"
+            "- Whenever the user says 'remind me', 'check back', 'ask me later', etc.\n"
+            "When the user responds to a check-in and shares something meaningful (mood, progress, habits), "
+            "call log_activity to record it AND save key insights to the profile using update_user_profile.\n\n",
+            "=== PROACTIVE BEHAVIOUR ===\n"
+            "You are running as an AUTOMATED SCHEDULED TASK. "
+            "Do NOT schedule any new check-ins or messages — only execute the steps in the prompt above.\n\n",
+        )
 
     # Build per-call dispatch table (includes chat_id-bound closures)
     from app.database import (
