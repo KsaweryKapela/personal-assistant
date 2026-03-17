@@ -554,11 +554,16 @@ def _build_send_profile(chat_id: int):
     """Return a closure that sends the current profile JSON to the given chat."""
     import html as _html
     from app.utils import send_telegram
+    _CHUNK = 3900  # leave room for <pre> tags and safe margin
     def send_profile() -> dict:
         profile = load_profile(chat_id)
-        json_str = json.dumps(profile, indent=2, ensure_ascii=False)
-        text = f"<pre>{_html.escape(json_str)}</pre>"
-        return send_telegram(chat_id, text, parse_mode="HTML")
+        json_str = _html.escape(json.dumps(profile, indent=2, ensure_ascii=False))
+        chunks = [json_str[i:i + _CHUNK] for i in range(0, max(len(json_str), 1), _CHUNK)]
+        for chunk in chunks:
+            result = send_telegram(chat_id, f"<pre>{chunk}</pre>", parse_mode="HTML")
+            if not result["ok"]:
+                return result
+        return {"ok": True}
     return send_profile
 
 
