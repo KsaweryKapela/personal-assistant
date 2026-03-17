@@ -108,7 +108,7 @@ def init_db() -> None:
                 role         TEXT        NOT NULL CHECK(role IN ('user','assistant')),
                 content      TEXT        NOT NULL,
                 message_type TEXT        NOT NULL DEFAULT 'text'
-                                 CHECK(message_type IN ('text','voice')),
+                                 CHECK(message_type IN ('text','voice','scheduled')),
                 embedding    vector({_EMBEDDING_DIM})
             )
         """)
@@ -156,6 +156,9 @@ def init_db() -> None:
         # Migrate existing activities table — add time columns if not present
         cur.execute("ALTER TABLE activities ADD COLUMN IF NOT EXISTS start_time TIME")
         cur.execute("ALTER TABLE activities ADD COLUMN IF NOT EXISTS end_time TIME")
+        # Migrate messages constraint to allow 'scheduled' message_type
+        cur.execute("ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_message_type_check")
+        cur.execute("ALTER TABLE messages ADD CONSTRAINT messages_message_type_check CHECK(message_type IN ('text','voice','scheduled'))")
 
         # Indexes for fast vector search
         cur.execute("""
