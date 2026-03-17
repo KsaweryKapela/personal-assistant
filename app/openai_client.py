@@ -553,21 +553,12 @@ def _build_update_user_profile(chat_id: int):
 def _build_send_profile(chat_id: int):
     """Return a closure that sends the current profile JSON to the given chat."""
     import html as _html
+    from app.utils import send_telegram
     def send_profile() -> dict:
         profile = load_profile(chat_id)
         json_str = json.dumps(profile, indent=2, ensure_ascii=False)
         text = f"<pre>{_html.escape(json_str)}</pre>"
-        try:
-            resp = http_requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            return {"ok": True}
-        except Exception as exc:
-            logger.warning("send_profile failed | chat_id=%s | %s", chat_id, exc)
-            return {"ok": False, "error": str(exc)}
+        return send_telegram(chat_id, text, parse_mode="HTML")
     return send_profile
 
 
