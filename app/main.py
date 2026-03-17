@@ -15,7 +15,18 @@ import sys
 
 from telegram import Update
 
-from app.config import LOG_BOT_TOKEN, LOG_CHAT_ID, OPENAI_MODEL, PORT, TELEGRAM_CHAT_ID, TIMEZONE, WEBHOOK_URL
+from app.config import (
+    DAILY_ACTIVITY_REVIEW_TIME,
+    DAILY_PROFILE_REVIEW_TIME,
+    DAILY_SUMMARY_TIME,
+    LOG_BOT_TOKEN,
+    LOG_CHAT_ID,
+    OPENAI_MODEL,
+    PORT,
+    TELEGRAM_CHAT_ID,
+    TIMEZONE,
+    WEBHOOK_URL,
+)
 from app.scheduler import add_recurring_daily_job, start as start_scheduler
 from app.telegram_bot import build_app
 
@@ -61,7 +72,7 @@ def main() -> None:
     if TELEGRAM_CHAT_ID:
         add_recurring_daily_job(
             chat_id=TELEGRAM_CHAT_ID,
-            time_str="23:30",
+            time_str=DAILY_PROFILE_REVIEW_TIME,
             name="daily-profile-review",
             message=(
                 f"[DAILY PROFILE REVIEW — AUTOMATED TASK]\n"
@@ -77,10 +88,10 @@ def main() -> None:
                 f"and exactly which profile fields were updated. Be specific."
             ),
         )
-        logger.info("Daily profile review job registered | chat_id=%s | time=23:30", TELEGRAM_CHAT_ID)
+        logger.info("Daily profile review job registered | chat_id=%s | time=%s", TELEGRAM_CHAT_ID, DAILY_PROFILE_REVIEW_TIME)
         add_recurring_daily_job(
             chat_id=TELEGRAM_CHAT_ID,
-            time_str="23:45",
+            time_str=DAILY_ACTIVITY_REVIEW_TIME,
             name="daily-activity-review",
             message=(
                 f"[DAILY ACTIVITY REVIEW — AUTOMATED TASK]\n"
@@ -101,10 +112,10 @@ def main() -> None:
                 f"If everything looks correct, just say so briefly."
             ),
         )
-        logger.info("Daily activity review job registered | chat_id=%s | time=23:45", TELEGRAM_CHAT_ID)
+        logger.info("Daily activity review job registered | chat_id=%s | time=%s", TELEGRAM_CHAT_ID, DAILY_ACTIVITY_REVIEW_TIME)
         add_recurring_daily_job(
             chat_id=TELEGRAM_CHAT_ID,
-            time_str="23:55",
+            time_str=DAILY_SUMMARY_TIME,
             name="daily-summary",
             message=(
                 f"[DAILY SUMMARY — AUTOMATED TASK]\n"
@@ -131,7 +142,7 @@ def main() -> None:
                 f"Step 6: Send the user a concise end-of-day report — scores, headline stats, and a one-line summary."
             ),
         )
-        logger.info("Daily summary job registered | chat_id=%s | time=23:55", TELEGRAM_CHAT_ID)
+        logger.info("Daily summary job registered | chat_id=%s | time=%s", TELEGRAM_CHAT_ID, DAILY_SUMMARY_TIME)
     else:
         logger.info("Daily profile review disabled (TELEGRAM_CHAT_ID not set)")
 

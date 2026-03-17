@@ -9,7 +9,15 @@ import requests as http_requests
 from openai import OpenAI
 
 from app.calendar_client import add_attendees, create_event, create_task, delete_event, list_events, update_event
-from app.config import OPENAI_API_KEY, OPENAI_MODEL, TELEGRAM_BOT_TOKEN, TIMEZONE
+from app.config import (
+    DAILY_ACTIVITY_REVIEW_TIME,
+    DAILY_PROFILE_REVIEW_TIME,
+    DAILY_SUMMARY_TIME,
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+    TELEGRAM_BOT_TOKEN,
+    TIMEZONE,
+)
 from app.profile_client import load_profile, save_profile
 from app.scheduler import add_job, get_pending_jobs
 
@@ -603,11 +611,11 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "") -> str:
         f"{calendar_context}\n"
         f"{scheduled_context}\n"
         f"{activity_context}\n"
-        f"Every day at 23:30 an automated profile review runs: reads the day's messages, "
+        f"Every day at {DAILY_PROFILE_REVIEW_TIME} an automated profile review runs: reads the day's messages, "
         f"updates the profile with new insights, and reports what was learned. "
-        f"At 23:45 an automated activity review runs: cross-references logged activities against "
+        f"At {DAILY_ACTIVITY_REVIEW_TIME} an automated activity review runs: cross-references logged activities against "
         f"the day's conversation, fixes any errors, and reports what was corrected. "
-        f"At 23:55 an automated daily summary is generated: all stats for the day are computed "
+        f"At {DAILY_SUMMARY_TIME} an automated daily summary is generated: all stats for the day are computed "
         f"and saved to the daily_summaries table, then a brief report is sent to the user.\n\n"
         "=== INSTRUCTIONS ===\n"
         "Context injected above is intentionally minimal to preserve the context window. "
