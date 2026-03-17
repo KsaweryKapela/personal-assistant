@@ -15,7 +15,19 @@ import sys
 
 from telegram import Update
 
-from app.config import LOG_BOT_TOKEN, LOG_CHAT_ID, OPENAI_MODEL, PORT, TELEGRAM_CHAT_ID, TIMEZONE, WEBHOOK_URL
+from app.config import (
+    DAILY_ACTIVITY_REVIEW_TIME,
+    DAILY_MORNING_CHECK_TIME,
+    DAILY_PROFILE_REVIEW_TIME,
+    DAILY_SUMMARY_TIME,
+    LOG_BOT_TOKEN,
+    LOG_CHAT_ID,
+    OPENAI_MODEL,
+    PORT,
+    TELEGRAM_CHAT_ID,
+    TIMEZONE,
+    WEBHOOK_URL,
+)
 from app.scheduler import add_recurring_daily_job, start as start_scheduler
 from app.telegram_bot import build_app
 
@@ -61,7 +73,26 @@ def main() -> None:
     if TELEGRAM_CHAT_ID:
         add_recurring_daily_job(
             chat_id=TELEGRAM_CHAT_ID,
-            time_str="23:30",
+            time_str=DAILY_MORNING_CHECK_TIME,
+            name="morning-checkin",
+            message=(
+                f"[MORNING CHECK-IN — AUTOMATED TASK]\n"
+                f"Send the user a single short morning message asking three things:\n"
+                f"1. What time did they wake up?\n"
+                f"2. How are they feeling — mood and energy level?\n"
+                f"3. What are their main plans or priorities for today?\n"
+                f"Keep it warm and brief — one message, three questions. "
+                f"After the user replies, do the following:\n"
+                f"- Call save_daily_summary with today's date and wake_time set to what they said (HH:MM).\n"
+                f"- Call log_activity with category='habit', name='wake up', status='completed', "
+                f"start_time=wake_time.\n"
+                f"- If they share mood or energy info, save it to their profile using update_user_profile."
+            ),
+        )
+        logger.info("Morning check-in job registered | chat_id=%s | time=%s", TELEGRAM_CHAT_ID, DAILY_MORNING_CHECK_TIME)
+        add_recurring_daily_job(
+            chat_id=TELEGRAM_CHAT_ID,
+            time_str=DAILY_PROFILE_REVIEW_TIME,
             name="daily-profile-review",
             message=(
                 f"[DAILY PROFILE REVIEW — AUTOMATED TASK]\n"
@@ -77,10 +108,10 @@ def main() -> None:
                 f"and exactly which profile fields were updated. Be specific."
             ),
         )
-        logger.info("Daily profile review job registered | chat_id=%s | time=23:30", TELEGRAM_CHAT_ID)
+        logger.info("Daily profile review job registered | chat_id=%s | time=%s", TELEGRAM_CHAT_ID, DAILY_PROFILE_REVIEW_TIME)
         add_recurring_daily_job(
             chat_id=TELEGRAM_CHAT_ID,
-            time_str="23:45",
+            time_str=DAILY_ACTIVITY_REVIEW_TIME,
             name="daily-activity-review",
             message=(
                 f"[DAILY ACTIVITY REVIEW — AUTOMATED TASK]\n"
@@ -101,10 +132,10 @@ def main() -> None:
                 f"If everything looks correct, just say so briefly."
             ),
         )
-        logger.info("Daily activity review job registered | chat_id=%s | time=23:45", TELEGRAM_CHAT_ID)
+        logger.info("Daily activity review job registered | chat_id=%s | time=%s", TELEGRAM_CHAT_ID, DAILY_ACTIVITY_REVIEW_TIME)
         add_recurring_daily_job(
             chat_id=TELEGRAM_CHAT_ID,
-            time_str="23:55",
+            time_str=DAILY_SUMMARY_TIME,
             name="daily-summary",
             message=(
                 f"[DAILY SUMMARY — AUTOMATED TASK]\n"
@@ -117,7 +148,9 @@ def main() -> None:
                 f"ORDER BY timestamp ASC\n\n"
                 f"Step 3: Fetch today's calendar events using list_events for today's date.\n\n"
                 f"Step 4: From all the above, compute:\n"
-                f"- wake_time / sleep_time: infer from first and last message timestamps (HH:MM)\n"
+                f"- wake_time: use the value already stored in today's daily_summaries row if present "
+                f"(set by the morning check-in); otherwise infer from the first message timestamp (HH:MM)\n"
+                f"- sleep_time: infer from the last message timestamp (HH:MM)\n"
                 f"- sleep_duration_hours: calculate if both known\n"
                 f"- activities_completed/skipped/partial/total + completion_rate_pct: count from activities\n"
                 f"- workout_done: true if any workout-category activity is completed or completed_late\n"
@@ -131,7 +164,7 @@ def main() -> None:
                 f"Step 6: Send the user a concise end-of-day report — scores, headline stats, and a one-line summary."
             ),
         )
-        logger.info("Daily summary job registered | chat_id=%s | time=23:55", TELEGRAM_CHAT_ID)
+        logger.info("Daily summary job registered | chat_id=%s | time=%s", TELEGRAM_CHAT_ID, DAILY_SUMMARY_TIME)
     else:
         logger.info("Daily profile review disabled (TELEGRAM_CHAT_ID not set)")
 
