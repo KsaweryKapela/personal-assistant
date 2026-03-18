@@ -103,7 +103,7 @@ def add_recurring_daily_job(chat_id: int, message: str, time_str: str, name: str
     with _lock:
         _jobs.append(job)
         _save_jobs()
-    logger.info("Recurring job registered | name=%r | first_run=%s", name, next_run.isoformat())
+    logger.info("Recurring job registered | name=%r | first_run=%s | total_jobs=%d", name, next_run.isoformat(), len(_jobs))
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +154,10 @@ def _run_job(job: dict) -> None:
     # Reschedule before executing so the job is always visible in _jobs
     # even while the LLM call is in progress.
     if job.get("repeat_daily_at"):
-        _reschedule_daily(job)
+        try:
+            _reschedule_daily(job)
+        except Exception as exc:
+            logger.error("Scheduler | reschedule failed | name=%r | error=%s", job.get("name"), exc, exc_info=True)
 
     try:
         reply = process_message(prompt, chat_id=chat_id, message_type="scheduled")
@@ -184,7 +187,13 @@ def _tick() -> None:
             [{"id": j["id"], "name": j.get("name"), "chat_id": j["chat_id"]} for j in due],
         )
         for job in due:
-            _run_job(job)
+            try:
+                _run_job(job)
+            except Exception as exc:
+                logger.error(
+                    "Scheduler tick | job crashed | job_id=%s | name=%r | error=%s",
+                    job["id"], job.get("name"), exc, exc_info=True,
+                )
     else:
         logger.debug("Scheduler tick | due=0 | remaining=%d", remaining)
 
@@ -229,4 +238,4 @@ def start() -> None:
     _jobs = _load_jobs()
     t = threading.Thread(target=_run, daemon=True, name="scheduler")
     t.start()
-    logger.info("Scheduler started | pending_jobs=%d", len(_jobs))
+    logger.info("Scheduler started | pending_jobs=%d | jobs=%s", len(_jobs), [j.get("name") for j in _jobs])
