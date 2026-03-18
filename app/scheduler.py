@@ -159,6 +159,7 @@ def _run_job(job: dict) -> None:
             "Scheduler job | AI error | job_id=%s | chat_id=%s | error=%s",
             job_id, chat_id, exc, exc_info=True,
         )
+        _send(chat_id, f"[Scheduled job '{job.get('name')}' failed: {exc}]", job_id)
     finally:
         if job.get("repeat_daily_at"):
             _reschedule_daily(job)
