@@ -151,6 +151,11 @@ def _run_job(job: dict) -> None:
         "Scheduler job | prompting AI | job_id=%s | chat_id=%s | prompt=%r",
         job_id, chat_id, prompt[:80],
     )
+    # Reschedule before executing so the job is always visible in _jobs
+    # even while the LLM call is in progress.
+    if job.get("repeat_daily_at"):
+        _reschedule_daily(job)
+
     try:
         reply = process_message(prompt, chat_id=chat_id, message_type="scheduled")
         _send(chat_id, reply, job_id)
@@ -160,9 +165,6 @@ def _run_job(job: dict) -> None:
             job_id, chat_id, exc, exc_info=True,
         )
         _send(chat_id, f"[Scheduled job '{job.get('name')}' failed: {exc}]", job_id)
-    finally:
-        if job.get("repeat_daily_at"):
-            _reschedule_daily(job)
 
 
 def _tick() -> None:
