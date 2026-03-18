@@ -86,11 +86,10 @@ def add_recurring_daily_job(chat_id: int, message: str, time_str: str, name: str
     now = datetime.now(tz)
     next_run = now.replace(hour=h, minute=m, second=0, microsecond=0)
     if next_run <= now:
-        missed_by = (now - next_run).total_seconds()
-        if missed_by <= 90 * 60:  # missed within 90 min — fire in 1 min (catchup)
-            next_run = now + timedelta(minutes=1)
-        else:
-            next_run += timedelta(days=1)
+        # Missed today's slot — fire in 1 min regardless of how long ago it was.
+        # After firing, _reschedule_daily pushes it to tomorrow, so it won't
+        # re-fire even if the app restarts again later today.
+        next_run = now + timedelta(minutes=1)
 
     job = {
         "id": str(uuid.uuid4()),

@@ -8,7 +8,7 @@ import pytz
 import requests as http_requests
 from openai import OpenAI
 
-from app.calendar_client import add_attendees, create_event, create_task, delete_event, delete_task, list_events, update_event
+from app.calendar_client import add_attendees, create_event, create_task, delete_event, delete_task, list_events, list_tasks, update_event
 from app.config import (
     DAILY_ACTIVITY_REVIEW_TIME,
     DAILY_MORNING_CHECK_TIME,
@@ -224,10 +224,18 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "list_tasks",
+            "description": "List all pending tasks in the user's Google Tasks list, including their IDs.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "delete_task",
             "description": (
                 "Delete a task from the user's Google Tasks list by its ID. "
-                "Use list_events or ask the user for the task ID if you don't have it."
+                "Call list_tasks first if you don't have the task ID."
             ),
             "parameters": {
                 "type": "object",
@@ -595,6 +603,7 @@ def _build_schedule_message(chat_id: int):
 
 _TOOL_DISPATCH_BASE = {
     "list_events": list_events,
+    "list_tasks": list_tasks,
     "create_event": create_event,
     "create_task": create_task,
     "delete_task": delete_task,
@@ -636,7 +645,7 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
     pending = get_pending_jobs()
     if pending:
         pending_lines = "\n".join(
-            f"  [{j.get('name', 'unnamed')}] {j['send_at']} — {j['message']}"
+            f"  [id={j['id']}] [{j.get('name', 'unnamed')}] {j['send_at']} — {j['message']}"
             for j in pending
         )
         scheduled_context = f"Scheduled check-ins:\n{pending_lines}"
