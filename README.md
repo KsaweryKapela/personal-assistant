@@ -29,7 +29,7 @@ A self-hosted AI personal assistant on Telegram. Manages your calendar, tasks, a
 | Layer | Tech |
 |---|---|
 | Bot interface | Telegram Bot API (webhook or polling) |
-| AI | OpenAI (`gpt-4o`) with tool-calling |
+| AI | OpenAI (GPT) with tool-calling |
 | Calendar & Tasks | Google Calendar API v3 + Google Tasks API |
 | Voice | OpenAI Whisper |
 | Database | PostgreSQL + pgvector (Railway) |
@@ -184,7 +184,7 @@ Leave `WEBHOOK_URL` unset for polling mode (no public URL needed locally).
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENAI_MODEL` | `gpt-4o` | OpenAI model |
+| `OPENAI_MODEL` | `gpt-4o` | OpenAI model to use |
 | `TIMEZONE` | `Europe/Warsaw` | IANA timezone for all scheduling |
 | `WEBHOOK_URL` | — | Public HTTPS URL for webhook mode (leave unset for polling) |
 | `PORT` | `8080` | Port the webhook server listens on |
