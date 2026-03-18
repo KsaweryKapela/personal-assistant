@@ -1,4 +1,5 @@
 import logging
+import time
 import uuid
 
 from app.openai_client import run_agent
@@ -10,9 +11,9 @@ def process_message(text: str, chat_id: int = 0, message_type: str = "text") -> 
     from app.database import save_message
 
     request_id = uuid.uuid4().hex[:8]
-    save_message(chat_id, "user", text, message_type)
-
+    t0 = time.monotonic()
     try:
+        save_message(chat_id, "user", text, message_type)
         reply = run_agent(text, chat_id=chat_id, request_id=request_id, message_type=message_type)
         save_message(chat_id, "assistant", reply)
         return reply

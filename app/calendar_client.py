@@ -376,6 +376,31 @@ def add_attendees(event_id: str, emails: list) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def list_tasks() -> dict:
+    """List all tasks in the user's default Google Tasks list."""
+    logger.info("list_tasks | start")
+    t0 = time.monotonic()
+    try:
+        service = _get_tasks_service()
+        result = service.tasks().list(tasklist="@default", maxResults=100, showCompleted=False).execute()
+        items = result.get("items", [])
+        tasks = [
+            {"task_id": t.get("id"), "title": t.get("title"), "due": t.get("due", ""), "notes": t.get("notes", "")}
+            for t in items
+        ]
+        elapsed = time.monotonic() - t0
+        logger.info("list_tasks | ok | count=%d | duration=%.2fs", len(tasks), elapsed)
+        return {"ok": True, "tasks": tasks}
+    except HttpError as exc:
+        elapsed = time.monotonic() - t0
+        logger.error("list_tasks | Google API error | duration=%.2fs | error=%s", elapsed, exc)
+        return {"ok": False, "error": f"Google Tasks error: {exc}"}
+    except Exception as exc:
+        elapsed = time.monotonic() - t0
+        logger.error("list_tasks | unexpected error | duration=%.2fs | error=%s", elapsed, exc)
+        return {"ok": False, "error": str(exc)}
+
+
 def delete_task(task_id: str) -> dict:
     """Delete a Google Task by ID."""
     logger.info("delete_task | start | task_id=%s", task_id)
