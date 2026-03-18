@@ -296,6 +296,14 @@ _TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "list_scheduled_jobs",
+            "description": "Return all currently scheduled jobs (both system daily jobs and user-created check-ins), including their IDs, names, and scheduled times.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "cancel_checkin",
             "description": (
                 "Cancel (delete) a pending scheduled check-in by its job ID. "
@@ -611,6 +619,10 @@ _TOOL_DISPATCH_BASE = {
     "update_event": update_event,
     "add_attendees": add_attendees,
     "cancel_checkin": remove_job,
+    "list_scheduled_jobs": lambda: {"jobs": [
+        {"id": j["id"], "name": j.get("name", "unnamed"), "send_at": j["send_at"], "repeat_daily_at": j.get("repeat_daily_at")}
+        for j in get_pending_jobs()
+    ]},
 }
 
 
