@@ -1,8 +1,26 @@
 # Personal Assistant Bot
 
-A minimal Telegram bot that understands natural-language messages and creates Google Calendar events using OpenAI.
+A self-hosted AI personal assistant on Telegram. Manages your calendar, tasks, activities, and habits — learns your preferences over time and checks in proactively every day.
 
-Send "Set meeting with Adam tomorrow at 3pm" → event appears in your Google Calendar, bot replies with confirmation.
+---
+
+## Features
+
+- **Natural language** — talk to it like a person, no commands needed
+- **Google Calendar** — create, edit, delete, and list events; auto-adds known contacts as attendees
+- **Google Tasks** — create, list, and delete tasks
+- **Activity & habit tracking** — logs workouts, work blocks, meals, and any custom activity
+- **Daily summaries** — end-of-day stats: mood, energy, sleep, completion rate, highlights
+- **User profile memory** — stores your preferences, contacts, health data, and goals; updates automatically as you share new info
+- **Voice messages** — transcribes voice notes via Whisper and processes them like text
+- **Proactive check-ins** — schedules follow-up messages after planned activities and evening reflections
+- **Automated daily jobs** (all times configurable):
+  - **07:00** — Morning check-in: wake time, mood, energy, plans
+  - **23:30** — Profile review: reads the day's messages and updates your profile
+  - **23:45** — Activity review: cross-references logged activities against conversation, fixes errors
+  - **23:55** — Daily summary: computes day stats and sends an end-of-day report
+- **RAG memory** — semantic search over past messages and activities via pgvector
+- **Railway deployment** — webhook mode, PostgreSQL included, Google credentials injected from env vars
 
 ---
 
@@ -10,14 +28,14 @@ Send "Set meeting with Adam tomorrow at 3pm" → event appears in your Google Ca
 
 | Layer | Tech |
 |---|---|
-| Bot interface | Telegram Bot API (long-polling) |
-| Intelligence | OpenAI `gpt-4o` with tool-calling |
-| Calendar | Google Calendar API v3 |
-| Runtime | Python 3.11+, FastAPI-free (polling needs no server) |
-| Config | python-dotenv |
-
-**Why polling instead of webhooks?**
-Polling requires zero infrastructure — no public URL, no tunnel, no server config. For a single-user personal assistant running locally (or on a small VPS) it is the simplest and most reliable choice.
+| Bot interface | Telegram Bot API (webhook or polling) |
+| AI | OpenAI (`gpt-4o`) with tool-calling |
+| Calendar & Tasks | Google Calendar API v3 + Google Tasks API |
+| Voice | OpenAI Whisper |
+| Database | PostgreSQL + pgvector (Railway) |
+| Embeddings | `text-embedding-3-small` |
+| Runtime | Python 3.11+ |
+| Deployment | Railway (recommended) or local |
 
 ---
 
@@ -26,172 +44,205 @@ Polling requires zero infrastructure — no public URL, no tunnel, no server con
 ```
 personal-assistant/
 ├── app/
-│   ├── main.py            # Entry point, starts polling
-│   ├── config.py          # Env-var loading
-│   ├── schemas.py         # Pydantic models
-│   ├── openai_client.py   # Intent extraction via tool-calling
-│   ├── calendar_client.py # Google Calendar CRUD
-│   ├── assistant.py       # Orchestrator (the main logic)
-│   ├── telegram_bot.py    # Telegram handler
-│   └── utils.py           # Date formatting helpers
-├── .env.example
-├── .gitignore
+│   ├── main.py              # Entry point — registers daily jobs, starts bot
+│   ├── config.py            # All env-var loading with defaults
+│   ├── assistant.py         # process_message orchestrator
+│   ├── openai_client.py     # Agentic loop, tool definitions, system prompt
+│   ├── calendar_client.py   # Google Calendar + Tasks CRUD
+│   ├── database.py          # PostgreSQL layer (activities, messages, profile, summaries)
+│   ├── profile_client.py    # User profile load/save with Railway env sync
+│   ├── scheduler.py         # Background scheduler for proactive messages
+│   ├── telegram_bot.py      # Telegram handler (text + voice)
+│   ├── voice.py             # Whisper transcription
+│   ├── log_bot.py           # Optional: stream logs to a second Telegram bot
+│   └── utils.py             # send_telegram helper (with chunking), date formatting
+├── start.sh                 # Railway entrypoint — writes credentials from env, then runs app
+├── railway.toml             # Railway build + deploy config
+├── .env.example             # Template for all environment variables
 ├── pyproject.toml
 └── requirements.txt
 ```
 
 ---
 
-## Setup
+## Deployment on Railway (recommended)
 
-### 1. Clone / download the project
+Railway gives you a free PostgreSQL database, persistent env vars, and automatic deploys on push.
 
-```bash
-git clone <repo>
-cd personal-assistant
-```
+### 1. Fork / clone the repo
 
-### 2. Install dependencies
+### 2. Create a Railway project
 
-**With uv (recommended):**
-```bash
-pip install uv          # one-time, if uv is not installed
-uv venv
-source .venv/bin/activate
-uv pip install -e .
-```
+1. Go to [railway.app](https://railway.app) and create a new project.
+2. Add a **PostgreSQL** service to the project (Railway auto-injects `DATABASE_URL`).
+3. Add a **new service** from your GitHub repo.
 
-**With pip:**
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+### 3. Set environment variables
 
-### 3. Create your `.env` file
+In your Railway service → **Variables**, add all variables from `.env.example`. Required ones:
 
-```bash
-cp .env.example .env
-```
+| Variable | Where to get it |
+|---|---|
+| `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com) |
+| `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) on Telegram |
+| `TELEGRAM_CHAT_ID` | Message [@userinfobot](https://t.me/userinfobot) on Telegram |
+| `DATABASE_URL` | Auto-injected by Railway PostgreSQL service |
+| `GOOGLE_CREDENTIALS_JSON` | Contents of `credentials.json` (see Google setup below) |
+| `GOOGLE_TOKEN_JSON` | Contents of `token.json` after first OAuth login |
+| `WEBHOOK_URL` | Your Railway service's public URL (e.g. `https://my-app.up.railway.app`) |
+| `USER_PROFILE` | Single-line JSON with your initial profile (see `.env.example`) |
 
-Fill in all values (see details below).
+### 4. Google credentials on Railway
 
----
+Railway has no persistent filesystem, so credentials are injected via env vars and written to disk by `start.sh` on each startup:
 
-## Telegram bot setup
+1. Complete the Google OAuth setup locally (see below) to get `credentials.json` and `token.json`.
+2. Copy the full JSON contents of each file into Railway env vars:
+   - `GOOGLE_CREDENTIALS_JSON` = contents of `credentials.json`
+   - `GOOGLE_TOKEN_JSON` = contents of `token.json`
+3. Set paths (optional — defaults already match `start.sh`):
+   - `GOOGLE_CREDENTIALS_FILE=credentials.json`
+   - `GOOGLE_TOKEN_FILE=token.json`
 
-1. Open Telegram and start a chat with [@BotFather](https://t.me/BotFather).
-2. Send `/newbot` and follow the prompts.
-3. Copy the token BotFather gives you.
-4. Add it to `.env`:
-   ```
-   TELEGRAM_BOT_TOKEN=123456789:ABC-your-token-here
-   ```
-5. Start a conversation with your new bot (search its username in Telegram) so it can send you messages.
+### 5. Deploy
+
+Push to your connected branch. Railway builds and deploys automatically.
 
 ---
 
-## Google Calendar setup
+## Google setup
 
-### A. Create a Google Cloud project & enable the Calendar API
+### A. Enable APIs
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/).
-2. Create a new project (or select an existing one).
-3. Navigate to **APIs & Services → Library**.
-4. Search for **Google Calendar API** and click **Enable**.
+1. Go to [Google Cloud Console](https://console.cloud.google.com).
+2. Create or select a project.
+3. **APIs & Services → Library** → enable:
+   - **Google Calendar API**
+   - **Google Tasks API**
 
 ### B. Create OAuth 2.0 credentials
 
-1. Go to **APIs & Services → Credentials**.
-2. Click **Create Credentials → OAuth client ID**.
-3. If prompted, configure the **OAuth consent screen** first:
-   - Choose **External** (or Internal if using Google Workspace).
-   - Fill in App name (anything), support email, developer email.
-   - On the **Scopes** step you can skip — the app requests them at runtime.
-   - On the **Test users** step, add your own Google email address.
-4. Back in **Create Credentials → OAuth client ID**:
-   - Application type: **Desktop app**
-   - Name: anything (e.g. "Personal Assistant")
-5. Click **Create**, then **Download JSON**.
-6. Save the file as `credentials.json` in the project root.
-7. Set in `.env`:
-   ```
-   GOOGLE_CREDENTIALS_FILE=credentials.json
-   ```
+1. **APIs & Services → Credentials → Create Credentials → OAuth client ID**
+2. Configure consent screen if prompted: External, add your email as test user.
+3. Application type: **Desktop app**
+4. Download the JSON → save as `credentials.json` in the project root.
 
-### C. First-run authentication
+### C. First-run authentication (local only)
 
-The first time you run the bot, a browser window will open asking you to log in to Google and grant calendar access. After you approve:
-- A `token.json` file is saved automatically.
-- All future runs use this token silently (it auto-refreshes).
+```bash
+python -m app.main
+```
 
-> **Note:** If your OAuth app is in "Testing" mode, the token expires after 7 days and you'll need to re-authenticate. To avoid this, publish the app (click "Publish app" in the consent screen — for a personal app this is fine).
+A browser window opens for Google login. After approving, `token.json` is saved automatically. Copy both files' contents into Railway env vars as described above.
 
----
-
-## Environment variables
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `OPENAI_API_KEY` | yes | — | OpenAI API key |
-| `TELEGRAM_BOT_TOKEN` | yes | — | Token from BotFather |
-| `GOOGLE_CREDENTIALS_FILE` | no | `credentials.json` | Path to OAuth client JSON |
-| `GOOGLE_TOKEN_FILE` | no | `token.json` | Path where token is stored |
-| `TIMEZONE` | no | `Europe/Warsaw` | IANA timezone for calendar events |
-| `OPENAI_MODEL` | no | `gpt-4o` | OpenAI model to use |
+> **Tip:** Publish your OAuth consent screen ("Publish app") to avoid the 7-day token expiry in Testing mode.
 
 ---
 
 ## Running locally
 
 ```bash
-# Make sure .venv is active and .env is filled in
+# 1. Install dependencies
+pip install uv
+uv venv && source .venv/bin/activate
+uv pip install -e .
+
+# 2. Set up env
+cp .env.example .env
+# Fill in .env
+
+# 3. Run
 python -m app.main
 ```
 
-You should see:
-```
-2024-03-08 12:00:00  INFO      app.main  Starting personal assistant bot (polling mode)...
-```
-
-Send a message to your Telegram bot. Logs appear in the terminal.
-
-Stop with `Ctrl+C`.
+Leave `WEBHOOK_URL` unset for polling mode (no public URL needed locally).
 
 ---
 
-## Example interactions
+## Environment variables
 
-| You send | Bot replies |
+### Required
+
+| Variable | Description |
 |---|---|
-| `Set meeting with Adam tomorrow at 3pm` | `Done — added 'Meeting with Adam' on Friday, March 9 at 15:00.` |
-| `Book gym on Friday at 18:00 for 1 hour` | `Done — added 'Gym' on Friday, March 9 at 18:00.` |
-| `Schedule lunch with Wiktoria` | `What day and time should I schedule it?` |
-| `Remind me about call with client tomorrow` | `What time should I schedule the call?` |
-| `Hey` | `Hey! I can help you schedule events — just tell me what to add to your calendar.` |
-| `Add a 30 minute meeting with Tom at 4pm` | `What day should I schedule it?` |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token from BotFather |
+| `TELEGRAM_CHAT_ID` | Your personal Telegram chat ID — gates all automated daily jobs |
+| `DATABASE_URL` | PostgreSQL connection string (auto-injected by Railway) |
+| `USER_PROFILE` | Initial user profile as single-line JSON (see `.env.example` for schema) |
+
+### Google
+
+| Variable | Default | Description |
+|---|---|---|
+| `GOOGLE_CREDENTIALS_FILE` | `credentials.json` | Path to OAuth client JSON |
+| `GOOGLE_TOKEN_FILE` | `token.json` | Path where OAuth token is stored |
+| `GOOGLE_CREDENTIALS_JSON` | — | Full JSON contents of credentials file (Railway only) |
+| `GOOGLE_TOKEN_JSON` | — | Full JSON contents of token file (Railway only) |
+
+### Bot & server
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENAI_MODEL` | `gpt-4o` | OpenAI model |
+| `TIMEZONE` | `Europe/Warsaw` | IANA timezone for all scheduling |
+| `WEBHOOK_URL` | — | Public HTTPS URL for webhook mode (leave unset for polling) |
+| `PORT` | `8080` | Port the webhook server listens on |
+
+### Logging (optional)
+
+| Variable | Description |
+|---|---|
+| `LOG_BOT_TOKEN` | Token of a second Telegram bot that receives all INFO+ logs |
+| `LOG_CHAT_ID` | Chat ID where the log bot sends messages |
+
+### Daily job times (optional)
+
+All times are in 24h format in the configured `TIMEZONE`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `DAILY_MORNING_CHECK_TIME` | `07:00` | Morning check-in — wake time, mood, plans |
+| `DAILY_PROFILE_REVIEW_TIME` | `23:30` | Profile update from day's messages |
+| `DAILY_ACTIVITY_REVIEW_TIME` | `23:45` | Activity log audit and corrections |
+| `DAILY_SUMMARY_TIME` | `23:55` | End-of-day stats and report |
+
+### Railway profile sync (optional)
+
+Keeps `USER_PROFILE` env var in sync with the database so it survives a DB reset.
+
+| Variable | Description |
+|---|---|
+| `RAILWAY_API_TOKEN` | Railway API token (Settings → Tokens) |
+| `RAILWAY_PROJECT_ID` | Your Railway project ID |
+| `RAILWAY_ENVIRONMENT_ID` | Your Railway environment ID |
+| `RAILWAY_SERVICE_ID` | Your Railway service ID |
 
 ---
 
-## Example `.env`
+## What the bot can do
 
-```dotenv
-OPENAI_API_KEY=sk-proj-...
-TELEGRAM_BOT_TOKEN=7123456789:AAF...
-GOOGLE_CREDENTIALS_FILE=credentials.json
-GOOGLE_TOKEN_FILE=token.json
-TIMEZONE=Europe/Warsaw
-OPENAI_MODEL=gpt-4o
-```
+Tell it anything naturally:
+
+| Input | What happens |
+|---|---|
+| "Set meeting with Adam tomorrow at 3pm" | Creates calendar event, adds Adam if contact is known |
+| "Log my workout — 45 min strength training" | Logs activity with category=workout |
+| "Add 'buy groceries' to my tasks" | Creates Google Task |
+| "Show my tasks" | Lists pending tasks |
+| "How have I been sleeping this week?" | Queries daily_summaries, reports sleep trends |
+| "Show my profile" | Sends full profile JSON |
+| "Remind me to stretch at 18:00" | Schedules a check-in for 18:00 |
+| "Cancel my 18:00 check-in" | Cancels it by ID |
+| "What did I do yesterday?" | Searches activity log and messages |
 
 ---
 
-## Known MVP limitations
+## Database tables
 
-- **Single user only.** The bot replies to anyone who messages it. If you want privacy, add a `ALLOWED_CHAT_ID` check in `telegram_bot.py`.
-- **No conversation memory.** Each message is processed independently — the bot cannot refer back to previous turns.
-- **No event listing.** "What do I have tomorrow?" is not implemented.
-- **No event editing or deletion.**
-- **No recurring events.**
-- **OAuth re-auth needed every ~7 days** if the consent screen is in Testing mode (see Google setup above).
-- **Blocking Google/OpenAI calls** run in a thread pool via `asyncio.to_thread` — fine for single-user, not suited for high concurrency.
+| Table | Contents |
+|---|---|
+| `activities` | Logged activities with status, notes, start/end time, embedding |
+| `messages` | All conversation messages with embeddings for semantic search |
+| `profile` | User profile JSON (single row per user) |
+| `daily_summaries` | Per-day stats: sleep, mood, energy, scores, highlights |
