@@ -377,19 +377,33 @@ def add_attendees(event_id: str, emails: list) -> dict:
 
 
 def list_tasks() -> dict:
-    """List all tasks in the user's default Google Tasks list."""
+    """List all tasks (pending and recently completed) in the user's default Google Tasks list."""
     logger.info("list_tasks | start")
     t0 = time.monotonic()
     try:
         service = _get_tasks_service()
-        result = service.tasks().list(tasklist="@default", maxResults=100, showCompleted=False).execute()
+        result = service.tasks().list(
+            tasklist="@default",
+            maxResults=100,
+            showCompleted=True,
+            showHidden=True,
+        ).execute()
         items = result.get("items", [])
         tasks = [
-            {"task_id": t.get("id"), "title": t.get("title"), "due": t.get("due", ""), "notes": t.get("notes", "")}
+            {
+                "task_id": t.get("id"),
+                "title": t.get("title"),
+                "status": t.get("status", "needsAction"),  # "needsAction" or "completed"
+                "completed_at": t.get("completed", ""),
+                "due": t.get("due", ""),
+                "notes": t.get("notes", ""),
+            }
             for t in items
         ]
         elapsed = time.monotonic() - t0
-        logger.info("list_tasks | ok | count=%d | duration=%.2fs", len(tasks), elapsed)
+        pending = sum(1 for t in tasks if t["status"] != "completed")
+        completed = len(tasks) - pending
+        logger.info("list_tasks | ok | pending=%d completed=%d | duration=%.2fs", pending, completed, elapsed)
         return {"ok": True, "tasks": tasks}
     except HttpError as exc:
         elapsed = time.monotonic() - t0

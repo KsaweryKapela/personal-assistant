@@ -226,7 +226,7 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "list_tasks",
-            "description": "List all pending tasks in the user's Google Tasks list, including their IDs.",
+            "description": "List all tasks in the user's Google Tasks list — both pending and recently completed — including their IDs, status, due date, and completion time.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
