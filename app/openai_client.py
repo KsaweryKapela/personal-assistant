@@ -208,7 +208,8 @@ _TOOLS = [
             "description": (
                 "Create a task in the user's Google Tasks list (visible in Google Calendar). "
                 "Use for to-dos, action items, or things without a fixed time slot. "
-                "For time-specific events, use create_event instead."
+                "For time-specific events, use create_event instead. "
+                "ALWAYS call list_tasks first to check for duplicates before creating."
             ),
             "parameters": {
                 "type": "object",
@@ -512,7 +513,11 @@ _TOOLS = [
                     "overall_score": {"type": "integer", "description": "1–10 holistic day rating."},
                     "highlights": {"type": "string", "description": "Key wins or good moments."},
                     "challenges": {"type": "string", "description": "What was hard or didn't go well."},
+                    "key_takeaways": {"type": "string", "description": "The most important lessons or insights from the day."},
                     "summary": {"type": "string", "description": "2–3 sentence plain-English day overview."},
+                    "mood_description": {"type": "string", "description": "Free-text description of the user's mood and emotional state throughout the day."},
+                    "stress_description": {"type": "string", "description": "Free-text description of stress levels, sources, and how they were handled."},
+                    "gut_state": {"type": "string", "description": "What the user ate and how it made them feel (digestion, energy, wellbeing). Only fill if the user mentioned food or gut state."},
                     "metadata": {"type": "object", "description": "Any extra stats that don't fit the schema."},
                 },
                 "required": ["date"],
@@ -525,13 +530,14 @@ _TOOLS = [
             "name": "query_database",
             "description": (
                 "Run a read-only SELECT query directly on the database. "
-                "Tables: activities (id, chat_id, timestamp, category, name, status, notes, metadata), "
+                "Tables: activities (id, chat_id, timestamp, category, name, status, notes, metadata, start_time, end_time), "
                 "messages (id, chat_id, timestamp, role, content, message_type), "
                 "profile (chat_id, data, updated_at), "
                 "daily_summaries (id, chat_id, date, wake_time, sleep_time, sleep_duration_hours, "
                 "activities_completed, activities_skipped, activities_partial, activities_total, "
                 "completion_rate_pct, workout_done, deep_work_minutes, mood_score, energy_score, "
-                "stress_score, overall_score, highlights, challenges, summary, metadata, created_at). "
+                "stress_score, overall_score, highlights, challenges, key_takeaways, summary, "
+                "mood_description, stress_description, gut_state, metadata, created_at). "
                 "Use this when the user wants to inspect raw records."
             ),
             "parameters": {
@@ -709,6 +715,7 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         "When creating calendar events, always set a color that matches the event type "
         "(workout→flamingo, work/meeting→blueberry, meal→banana, social→grape, health→tomato, personal/habit→sage, travel→peacock). "
         "For time-specific activities, use create_event. For to-dos without a fixed time, use create_task. "
+        "Before creating a task, always call list_tasks to check for duplicates — do not create a task that already exists. "
         "When the user shares new personal info, preferences, or contacts (including email addresses), "
         "call update_user_profile once per changed field using action='set' or action='delete'. "
         "Never pass the full profile — only the specific category, key, and value being changed. "
