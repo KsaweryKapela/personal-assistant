@@ -461,6 +461,54 @@ def list_tasks() -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def update_task(
+    task_id: str,
+    title: str = None,
+    notes: str = None,
+    due_date: str = None,
+    status: str = None,
+) -> dict:
+    """Update fields on an existing Google Task. Only provided fields are changed."""
+    logger.info("update_task | start | task_id=%s", task_id)
+    t0 = time.monotonic()
+    try:
+        service = _get_tasks_service()
+        task = service.tasks().get(tasklist="@default", task=task_id).execute()
+
+        if title is not None:
+            task["title"] = title
+        if notes is not None:
+            task["notes"] = notes
+        if due_date is not None:
+            due_dt = datetime.strptime(due_date, "%Y-%m-%d")
+            task["due"] = due_dt.strftime("%Y-%m-%dT00:00:00.000Z")
+        if status is not None:
+            if status not in ("needsAction", "completed"):
+                return {"ok": False, "error": "status must be 'needsAction' or 'completed'"}
+            task["status"] = status
+            if status == "needsAction":
+                task.pop("completed", None)
+
+        updated = service.tasks().update(tasklist="@default", task=task_id, body=task).execute()
+        elapsed = time.monotonic() - t0
+        logger.info("update_task | ok | task_id=%s | duration=%.2fs", task_id, elapsed)
+        return {
+            "ok": True,
+            "task_id": updated.get("id"),
+            "title": updated.get("title"),
+            "status": updated.get("status"),
+            "due": updated.get("due", ""),
+        }
+    except HttpError as exc:
+        elapsed = time.monotonic() - t0
+        logger.error("update_task | Google API error | task_id=%s | duration=%.2fs | error=%s", task_id, elapsed, exc)
+        return {"ok": False, "error": f"Google Tasks error: {exc}"}
+    except Exception as exc:
+        elapsed = time.monotonic() - t0
+        logger.error("update_task | unexpected error | task_id=%s | duration=%.2fs | error=%s", task_id, elapsed, exc)
+        return {"ok": False, "error": str(exc)}
+
+
 def delete_task(task_id: str) -> dict:
     """Delete a Google Task by ID."""
     logger.info("delete_task | start | task_id=%s", task_id)
