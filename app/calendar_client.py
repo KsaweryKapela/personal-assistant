@@ -182,6 +182,43 @@ def list_events(date: str) -> dict:
         return {"error": str(exc)}
 
 
+_DAY_MAP = {"MO": "MO", "TU": "TU", "WE": "WE", "TH": "TH", "FR": "FR", "SA": "SA", "SU": "SU"}
+_FREQ_MAP = {"daily": "DAILY", "weekly": "WEEKLY", "monthly": "MONTHLY", "yearly": "YEARLY"}
+
+
+def _build_rrule(
+    frequency: str,
+    interval: int = 1,
+    days_of_week: list | None = None,
+    until: str | None = None,
+    count: int | None = None,
+) -> str | None:
+    """Convert simple recurrence params into an RFC 5545 RRULE string."""
+    freq_upper = _FREQ_MAP.get(frequency.lower()) if frequency else None
+    if not freq_upper:
+        return None
+
+    # "weekdays" is a convenience alias
+    if frequency.lower() == "weekdays":
+        freq_upper = "WEEKLY"
+        days_of_week = ["MO", "TU", "WE", "TH", "FR"]
+
+    parts = [f"FREQ={freq_upper}"]
+    if interval and interval > 1:
+        parts.append(f"INTERVAL={interval}")
+    if days_of_week:
+        valid_days = [_DAY_MAP[d.upper()] for d in days_of_week if d.upper() in _DAY_MAP]
+        if valid_days:
+            parts.append(f"BYDAY={','.join(valid_days)}")
+    if until:
+        # Convert YYYY-MM-DD to YYYYMMDD
+        parts.append(f"UNTIL={until.replace('-', '')}T235959Z")
+    elif count:
+        parts.append(f"COUNT={count}")
+
+    return "RRULE:" + ";".join(parts)
+
+
 def create_event(
     title: str,
     date: str,
@@ -191,6 +228,11 @@ def create_event(
     location: str = None,
     attendees: list = None,
     color: str = None,
+    frequency: str = None,
+    interval: int = 1,
+    days_of_week: list = None,
+    recurrence_until: str = None,
+    recurrence_count: int = None,
 ) -> dict:
     """Create a calendar event. Returns event id and link."""
     t0 = time.monotonic()
@@ -217,13 +259,17 @@ def create_event(
             color_id = _COLOR_MAP.get(color.lower())
             if color_id:
                 body["colorId"] = color_id
+        if frequency:
+            rrule = _build_rrule(frequency, interval, days_of_week, recurrence_until, recurrence_count)
+            if rrule:
+                body["recurrence"] = [rrule]
 
         event = service.events().insert(calendarId="primary", body=body).execute()
 
         elapsed = time.monotonic() - t0
         logger.info(
-            "create_event | ok | event_id=%s | title=%r | duration=%.2fs | link=%s",
-            event.get("id"), title, elapsed, event.get("htmlLink"),
+            "create_event | ok | event_id=%s | title=%r | recurrence=%s | duration=%.2fs | link=%s",
+            event.get("id"), title, body.get("recurrence"), elapsed, event.get("htmlLink"),
         )
         return {"ok": True, "event_id": event.get("id"), "link": event.get("htmlLink")}
 

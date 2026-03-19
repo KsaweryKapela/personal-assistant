@@ -107,12 +107,12 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "create_event",
-            "description": "Create a new calendar event.",
+            "description": "Create a new calendar event, optionally recurring.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {"type": "string", "description": "Event title."},
-                    "date": {"type": "string", "description": "Date in YYYY-MM-DD format."},
+                    "date": {"type": "string", "description": "Start date in YYYY-MM-DD format (first occurrence for recurring events)."},
                     "start_time": {"type": "string", "description": "Start time in HH:MM (24h)."},
                     "duration_minutes": {"type": "integer", "description": "Duration in minutes. Default 60."},
                     "description": {"type": "string", "description": "Optional event description."},
@@ -139,6 +139,32 @@ _TOOLS = [
                             "travel → peacock, "
                             "other → lavender."
                         ),
+                    },
+                    "frequency": {
+                        "type": "string",
+                        "enum": ["daily", "weekly", "weekdays", "monthly", "yearly"],
+                        "description": (
+                            "Recurrence frequency. Omit for a one-off event. "
+                            "'weekdays' means Monday–Friday. "
+                            "Use 'weekly' with days_of_week for specific days."
+                        ),
+                    },
+                    "interval": {
+                        "type": "integer",
+                        "description": "Repeat every N periods (e.g. interval=2 with frequency='weekly' = every 2 weeks). Default 1.",
+                    },
+                    "days_of_week": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]},
+                        "description": "For weekly recurrence: which days to repeat on, e.g. ['MO', 'WE', 'FR'].",
+                    },
+                    "recurrence_until": {
+                        "type": "string",
+                        "description": "Stop repeating after this date (YYYY-MM-DD). Mutually exclusive with recurrence_count.",
+                    },
+                    "recurrence_count": {
+                        "type": "integer",
+                        "description": "Total number of occurrences (including the first). Mutually exclusive with recurrence_until.",
                     },
                 },
                 "required": ["title", "date", "start_time"],
