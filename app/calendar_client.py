@@ -183,7 +183,7 @@ def list_events(date: str) -> dict:
 
 
 _DAY_MAP = {"MO": "MO", "TU": "TU", "WE": "WE", "TH": "TH", "FR": "FR", "SA": "SA", "SU": "SU"}
-_FREQ_MAP = {"daily": "DAILY", "weekly": "WEEKLY", "monthly": "MONTHLY", "yearly": "YEARLY"}
+_FREQ_MAP = {"daily": "DAILY", "weekly": "WEEKLY", "weekdays": "WEEKLY", "monthly": "MONTHLY", "yearly": "YEARLY"}
 
 
 def _build_rrule(
@@ -194,13 +194,15 @@ def _build_rrule(
     count: int | None = None,
 ) -> str | None:
     """Convert simple recurrence params into an RFC 5545 RRULE string."""
-    freq_upper = _FREQ_MAP.get(frequency.lower()) if frequency else None
+    if not frequency:
+        return None
+    freq_lower = frequency.lower()
+    freq_upper = _FREQ_MAP.get(freq_lower)
     if not freq_upper:
         return None
 
-    # "weekdays" is a convenience alias
-    if frequency.lower() == "weekdays":
-        freq_upper = "WEEKLY"
+    # "weekdays" means Mon–Fri
+    if freq_lower == "weekdays":
         days_of_week = ["MO", "TU", "WE", "TH", "FR"]
 
     parts = [f"FREQ={freq_upper}"]
