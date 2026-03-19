@@ -202,7 +202,7 @@ All times are in 24h format in the configured `TIMEZONE`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `DAILY_MORNING_CHECK_TIME` | `07:00` | Morning check-in — wake time, mood, plans |
+| `DAILY_MORNING_CHECK_TIME` | `05:00` | Morning check-in — morning routine, mood, plans |
 | `DAILY_PROFILE_REVIEW_TIME` | `23:30` | Profile update from day's messages |
 | `DAILY_ACTIVITY_REVIEW_TIME` | `23:45` | Activity log audit and corrections |
 | `DAILY_SUMMARY_TIME` | `23:55` | End-of-day stats and report |
