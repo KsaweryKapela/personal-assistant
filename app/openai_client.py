@@ -8,7 +8,7 @@ import pytz
 import requests as http_requests
 from openai import OpenAI
 
-from app.calendar_client import add_attendees, create_event, create_task, delete_event, delete_task, list_events, list_tasks, update_event
+from app.calendar_client import add_attendees, create_event, create_task, delete_event, delete_task, list_events, list_tasks, update_event, update_task
 from app.config import (
     DAILY_ACTIVITY_REVIEW_TIME,
     DAILY_MORNING_CHECK_TIME,
@@ -254,6 +254,32 @@ _TOOLS = [
             "name": "list_tasks",
             "description": "List all tasks in the user's Google Tasks list — both pending and recently completed — including their IDs, status, due date, and completion time.",
             "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_task",
+            "description": (
+                "Edit an existing task — rename it, change its due date, update notes, or mark it done/undone. "
+                "Call list_tasks first if you don't have the task ID. "
+                "Only pass the fields you want to change."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "The Google Tasks task ID to update."},
+                    "title": {"type": "string", "description": "New task title."},
+                    "notes": {"type": "string", "description": "New notes or details."},
+                    "due_date": {"type": "string", "description": "New due date in YYYY-MM-DD format."},
+                    "status": {
+                        "type": "string",
+                        "enum": ["needsAction", "completed"],
+                        "description": "'completed' to mark as done, 'needsAction' to reopen.",
+                    },
+                },
+                "required": ["task_id"],
+            },
         },
     },
     {
@@ -646,6 +672,7 @@ _TOOL_DISPATCH_BASE = {
     "list_tasks": list_tasks,
     "create_event": create_event,
     "create_task": create_task,
+    "update_task": update_task,
     "delete_task": delete_task,
     "delete_event": delete_event,
     "update_event": update_event,
