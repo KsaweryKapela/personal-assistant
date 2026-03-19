@@ -115,15 +115,20 @@ def main() -> None:
             name="morning-checkin",
             message=(
                 f"[MORNING CHECK-IN — AUTOMATED TASK]\n"
-                f"Send the user a single short morning message asking three things:\n"
-                f"1. What time did they wake up?\n"
-                f"2. How are they feeling — mood and energy level?\n"
-                f"3. What are their main plans or priorities for today?\n"
-                f"Keep it warm and brief — one message, three questions. "
+                f"Step 1: Load the user profile using get_user_profile and read their morning routine "
+                f"(look in lifestyle, health, or any relevant section).\n"
+                f"Step 2: Send the user a single warm, brief morning message that:\n"
+                f"  a. Greets them and reminds them of their morning routine (list the specific habits/steps "
+                f"     from their profile — e.g. cold shower, meditation, journaling, etc.).\n"
+                f"  b. Asks three things:\n"
+                f"     1. Did they complete their morning routine? (reference the specific items)\n"
+                f"     2. How are they feeling — mood and energy level?\n"
+                f"     3. What are their main plans or priorities for today?\n"
+                f"Keep it concise — one message. "
                 f"After the user replies, do the following:\n"
-                f"- Call save_daily_summary with today's date and wake_time set to what they said (HH:MM).\n"
-                f"- Call log_activity with category='habit', name='wake up', status='completed', "
-                f"start_time=wake_time.\n"
+                f"- Call save_daily_summary with today's date and wake_time inferred from the current time (HH:MM).\n"
+                f"- Call log_activity with category='habit', name='morning routine', "
+                f"status='completed' or 'skipped' based on what they said.\n"
                 f"- If they share mood or energy info, save it to their profile using update_user_profile."
             ),
         )

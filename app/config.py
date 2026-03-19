@@ -33,7 +33,7 @@ TELEGRAM_CHAT_ID: int | None = int(_chat_id_raw) if _chat_id_raw else None
 DATABASE_URL: str = _require("DATABASE_URL")
 
 # Daily automated job times (HH:MM, 24h, in TIMEZONE)
-DAILY_MORNING_CHECK_TIME: str = os.getenv("DAILY_MORNING_CHECK_TIME", "07:00")
+DAILY_MORNING_CHECK_TIME: str = os.getenv("DAILY_MORNING_CHECK_TIME", "05:00")
 DAILY_PROFILE_REVIEW_TIME: str = os.getenv("DAILY_PROFILE_REVIEW_TIME", "23:30")
 DAILY_ACTIVITY_REVIEW_TIME: str = os.getenv("DAILY_ACTIVITY_REVIEW_TIME", "23:45")
 DAILY_SUMMARY_TIME: str = os.getenv("DAILY_SUMMARY_TIME", "23:55")
