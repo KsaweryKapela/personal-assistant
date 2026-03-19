@@ -146,7 +146,12 @@ def init_db() -> None:
 
                 highlights           TEXT        NOT NULL DEFAULT '',
                 challenges           TEXT        NOT NULL DEFAULT '',
+                key_takeaways        TEXT        NOT NULL DEFAULT '',
                 summary              TEXT        NOT NULL DEFAULT '',
+
+                mood_description     TEXT        NOT NULL DEFAULT '',
+                stress_description   TEXT        NOT NULL DEFAULT '',
+                gut_state            TEXT        NOT NULL DEFAULT '',
 
                 metadata             JSONB       NOT NULL DEFAULT '{}',
 
@@ -156,6 +161,11 @@ def init_db() -> None:
         # Migrate existing activities table — add time columns if not present
         cur.execute("ALTER TABLE activities ADD COLUMN IF NOT EXISTS start_time TIME")
         cur.execute("ALTER TABLE activities ADD COLUMN IF NOT EXISTS end_time TIME")
+        # Migrate daily_summaries — add richer description columns if not present
+        cur.execute("ALTER TABLE daily_summaries ADD COLUMN IF NOT EXISTS key_takeaways TEXT NOT NULL DEFAULT ''")
+        cur.execute("ALTER TABLE daily_summaries ADD COLUMN IF NOT EXISTS mood_description TEXT NOT NULL DEFAULT ''")
+        cur.execute("ALTER TABLE daily_summaries ADD COLUMN IF NOT EXISTS stress_description TEXT NOT NULL DEFAULT ''")
+        cur.execute("ALTER TABLE daily_summaries ADD COLUMN IF NOT EXISTS gut_state TEXT NOT NULL DEFAULT ''")
         # Migrate messages constraint to allow 'scheduled' message_type
         cur.execute("ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_message_type_check")
         cur.execute("ALTER TABLE messages ADD CONSTRAINT messages_message_type_check CHECK(message_type IN ('text','voice','scheduled'))")
@@ -478,7 +488,11 @@ def save_daily_summary(
     overall_score: int | None = None,
     highlights: str = "",
     challenges: str = "",
+    key_takeaways: str = "",
     summary: str = "",
+    mood_description: str = "",
+    stress_description: str = "",
+    gut_state: str = "",
     metadata: dict | None = None,
 ) -> dict:
     """Upsert a daily summary record (one per chat_id + date)."""
@@ -492,14 +506,18 @@ def save_daily_summary(
                 activities_completed, activities_skipped, activities_partial, activities_total,
                 completion_rate_pct, workout_done, deep_work_minutes,
                 mood_score, energy_score, stress_score, overall_score,
-                highlights, challenges, summary, metadata
+                highlights, challenges, key_takeaways, summary,
+                mood_description, stress_description, gut_state,
+                metadata
             ) VALUES (
                 %s, %s,
                 %s, %s, %s,
                 %s, %s, %s, %s,
                 %s, %s, %s,
                 %s, %s, %s, %s,
-                %s, %s, %s, %s
+                %s, %s, %s, %s,
+                %s, %s, %s,
+                %s
             )
             ON CONFLICT (chat_id, date) DO UPDATE SET
                 wake_time            = EXCLUDED.wake_time,
@@ -518,7 +536,11 @@ def save_daily_summary(
                 overall_score        = EXCLUDED.overall_score,
                 highlights           = EXCLUDED.highlights,
                 challenges           = EXCLUDED.challenges,
+                key_takeaways        = EXCLUDED.key_takeaways,
                 summary              = EXCLUDED.summary,
+                mood_description     = EXCLUDED.mood_description,
+                stress_description   = EXCLUDED.stress_description,
+                gut_state            = EXCLUDED.gut_state,
                 metadata             = EXCLUDED.metadata,
                 created_at           = NOW()
             """,
@@ -528,7 +550,8 @@ def save_daily_summary(
                 activities_completed, activities_skipped, activities_partial, activities_total,
                 completion_rate_pct, workout_done, deep_work_minutes,
                 mood_score, energy_score, stress_score, overall_score,
-                highlights, challenges, summary,
+                highlights, challenges, key_takeaways, summary,
+                mood_description, stress_description, gut_state,
                 json.dumps(metadata or {}),
             ),
         )
