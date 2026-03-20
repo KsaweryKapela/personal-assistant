@@ -47,19 +47,65 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     return _pool
 
 
+def _reset_pool() -> None:
+    """Close all connections and discard the pool so the next call recreates it."""
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            try:
+                _pool.closeall()
+            except Exception:
+                pass
+            _pool = None
+    logger.info("DB pool reset — stale connections discarded")
+
+
 def _conn():
-    """Context manager that borrows a connection from the pool."""
+    """Context manager that borrows a connection from the pool.
+
+    On entry, pings the connection with SELECT 1. If it is stale (server closed
+    it while the pool was idle), the pool is reset and a fresh connection is
+    obtained. This handles Railway's PostgreSQL idle-timeout without crashing.
+    """
     class _Ctx:
         def __enter__(self):
-            self.c = _get_pool().getconn()
-            self.c.autocommit = False
-            return self.c
+            for attempt in range(2):
+                self.c = _get_pool().getconn()
+                self.c.autocommit = False
+                try:
+                    self.c.cursor().execute("SELECT 1")
+                    self.c.rollback()
+                    return self.c
+                except (psycopg2.OperationalError, psycopg2.InterfaceError) as exc:
+                    logger.warning("DB | stale connection on attempt %d (%s) — resetting pool", attempt + 1, exc)
+                    try:
+                        self.c.close()
+                    except Exception:
+                        pass
+                    _reset_pool()
+            raise psycopg2.OperationalError("Could not obtain a live DB connection after 2 attempts")
+
         def __exit__(self, exc_type, *_):
-            if exc_type:
-                self.c.rollback()
+            if exc_type and issubclass(exc_type, (psycopg2.OperationalError, psycopg2.InterfaceError)):
+                # Connection died mid-operation — close it and reset pool so
+                # subsequent calls get fresh connections.
+                try:
+                    self.c.close()
+                except Exception:
+                    pass
+                _reset_pool()
             else:
-                self.c.commit()
-            _get_pool().putconn(self.c)
+                try:
+                    if exc_type:
+                        self.c.rollback()
+                    else:
+                        self.c.commit()
+                except Exception:
+                    pass
+                try:
+                    _get_pool().putconn(self.c)
+                except Exception:
+                    pass
     return _Ctx()
 
 
