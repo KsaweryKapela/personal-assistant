@@ -84,7 +84,7 @@ def add_recurring_daily_job(chat_id: int, message: str, time_str: str, name: str
     tz = pytz.timezone(TIMEZONE)
     h, m = map(int, time_str.split(":"))
     now = datetime.now(tz)
-    next_run = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    next_run = tz.localize(datetime(now.year, now.month, now.day, h, m, 0))
     if next_run <= now:
         # Missed today's slot — only catch up if we're within 10 minutes of the
         # scheduled time (e.g. a brief restart). If more than 10 minutes have
@@ -136,7 +136,8 @@ def _reschedule_daily(job: dict) -> None:
     time_str = job["repeat_daily_at"]
     h, m = map(int, time_str.split(":"))
     now = datetime.now(tz)
-    next_run = now.replace(hour=h, minute=m, second=0, microsecond=0) + timedelta(days=1)
+    tomorrow = (now + timedelta(days=1)).date()
+    next_run = tz.localize(datetime(tomorrow.year, tomorrow.month, tomorrow.day, h, m, 0))
 
     new_job = {**job, "id": str(uuid.uuid4()), "send_at": next_run.isoformat()}
     with _lock:
