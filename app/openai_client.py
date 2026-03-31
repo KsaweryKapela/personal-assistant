@@ -731,15 +731,24 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
             and t.get("due", "")
             and t.get("due", "")[:10] < today_str
         ]
+        completed_today = [
+            t for t in all_tasks
+            if t.get("status") == "completed" and t.get("completed_at", "")[:10] == today_str
+        ]
         context_tasks = due_today + overdue
+        lines = []
         if context_tasks:
-            task_lines = []
             for t in context_tasks:
                 label = "due today" if t.get("due", "")[:10] == today_str else f"overdue (was due {t.get('due', '')[:10]})"
-                task_lines.append(f"  [{t['task_id']}] {t['title']} — {label}")
-            tasks_context = "Today's tasks (pending):\n" + "\n".join(task_lines)
+                lines.append(f"  [{t['task_id']}] {t['title']} — {label}")
+        if completed_today:
+            for t in completed_today:
+                lines.append(f"  [{t['task_id']}] {t['title']} — completed today")
+        if lines:
+            header = "Today's tasks (pending + completed today):" if completed_today else "Today's tasks (pending):"
+            tasks_context = header + "\n" + "\n".join(lines)
         else:
-            tasks_context = "No tasks due today."
+            tasks_context = "No tasks due or completed today."
     except Exception as exc:
         tasks_context = "(Could not load today's tasks)"
         logger.warning("%sTasks context failed | %s", p, exc)
