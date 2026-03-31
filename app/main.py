@@ -201,6 +201,9 @@ def main() -> None:
                 f"WHERE chat_id = {TELEGRAM_CHAT_ID} AND timestamp > NOW() - INTERVAL '24 hours' "
                 f"ORDER BY timestamp ASC\n\n"
                 f"Step 3: Fetch today's calendar events using list_events for today's date.\n\n"
+                f"Step 3b: Fetch tasks using list_tasks. Keep ONLY tasks where the due date starts with today's date "
+                f"(the first 10 characters of the 'due' field equal today's date) or tasks that are overdue "
+                f"(due date earlier than today). Ignore all tasks with future due dates — they are not today's concern.\n\n"
                 f"Step 4: From all the above, compute:\n"
                 f"- wake_time: use the value already stored in today's daily_summaries row if present "
                 f"(set by the morning check-in); otherwise infer from the first message timestamp (HH:MM)\n"
@@ -225,7 +228,15 @@ def main() -> None:
                 f"mood_score, energy_score, stress_score, overall_score, highlights, challenges, "
                 f"key_takeaways, summary, mood_description, stress_description, gut_state, metadata. "
                 f"Do not omit any field — use null/empty string/0 as appropriate if data is unavailable.\n\n"
-                f"Step 6: Send the user a concise end-of-day report — scores, headline stats, and a one-line summary."
+                f"Step 6: Send the user a single wrap-up message that:\n"
+                f"  a. Briefly acknowledges today using one sentence (overall feel of the day based on scores and activities).\n"
+                f"  b. Goes through today's calendar events (from step 3) — for each event not already clearly discussed "
+                f"     in today's messages, ask a short follow-up (e.g. 'How did the X meeting go?').\n"
+                f"  c. Goes through today's tasks (from step 3b) — for each pending task due today or overdue, "
+                f"     ask whether it was completed or what happened with it.\n"
+                f"  d. References anything from today's conversation that was left unresolved or worth checking on.\n"
+                f"Keep the message warm, direct, and concise. Group related items. Do NOT ask about things already "
+                f"clearly covered in the conversation. End with a brief stats line: scores and completion rate."
             ),
         )
         logger.info("Daily summary job registered | chat_id=%s | time=%s", TELEGRAM_CHAT_ID, DAILY_SUMMARY_TIME)

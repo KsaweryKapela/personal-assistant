@@ -717,6 +717,33 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         calendar_context = f"(Could not load today's events: {exc})"
         logger.warning("%sCalendar context failed | %s", p, exc)
 
+    try:
+        from app.calendar_client import list_tasks
+        tasks_result = list_tasks()
+        all_tasks = tasks_result.get("tasks", [])
+        due_today = [
+            t for t in all_tasks
+            if t.get("status") == "needsAction" and t.get("due", "")[:10] == today_str
+        ]
+        overdue = [
+            t for t in all_tasks
+            if t.get("status") == "needsAction"
+            and t.get("due", "")
+            and t.get("due", "")[:10] < today_str
+        ]
+        context_tasks = due_today + overdue
+        if context_tasks:
+            task_lines = []
+            for t in context_tasks:
+                label = "due today" if t.get("due", "")[:10] == today_str else f"overdue (was due {t.get('due', '')[:10]})"
+                task_lines.append(f"  [{t['task_id']}] {t['title']} — {label}")
+            tasks_context = "Today's tasks (pending):\n" + "\n".join(task_lines)
+        else:
+            tasks_context = "No tasks due today."
+    except Exception as exc:
+        tasks_context = "(Could not load today's tasks)"
+        logger.warning("%sTasks context failed | %s", p, exc)
+
     profile = load_profile(chat_id)
     pending = get_pending_jobs()
     if pending:
@@ -750,6 +777,7 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         f"=== CONTEXT ===\n"
         f"Current date and time: {current_dt} (timezone: {TIMEZONE}).\n"
         f"{calendar_context}\n"
+        f"{tasks_context}\n"
         f"{scheduled_context}\n"
         f"{activity_context}\n"
         f"Automated daily jobs (all times in {TIMEZONE}):\n"
@@ -767,6 +795,8 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         "never ask the user for details you could retrieve with a tool call.\n"
         "Use the available tools to fulfil the user's request. "
         "Resolve relative dates (tomorrow, next Friday, etc.) to absolute YYYY-MM-DD. "
+        f"When the user asks to plan, schedule, or organise their day without specifying a date, always default to TODAY ({today_str}). "
+        "Schedule all tasks and activities on today's date unless the user explicitly states a different date. "
         "Use 24-hour HH:MM for times. "
         "If you need to find an event ID before acting on it, call list_events first. "
         "When creating events involving known contacts, auto-add their emails as attendees. "
