@@ -717,6 +717,33 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         calendar_context = f"(Could not load today's events: {exc})"
         logger.warning("%sCalendar context failed | %s", p, exc)
 
+    try:
+        from app.calendar_client import list_tasks
+        tasks_result = list_tasks()
+        all_tasks = tasks_result.get("tasks", [])
+        due_today = [
+            t for t in all_tasks
+            if t.get("status") == "needsAction" and t.get("due", "")[:10] == today_str
+        ]
+        overdue = [
+            t for t in all_tasks
+            if t.get("status") == "needsAction"
+            and t.get("due", "")
+            and t.get("due", "")[:10] < today_str
+        ]
+        context_tasks = due_today + overdue
+        if context_tasks:
+            task_lines = []
+            for t in context_tasks:
+                label = "due today" if t.get("due", "")[:10] == today_str else f"overdue (was due {t.get('due', '')[:10]})"
+                task_lines.append(f"  [{t['task_id']}] {t['title']} — {label}")
+            tasks_context = "Today's tasks (pending):\n" + "\n".join(task_lines)
+        else:
+            tasks_context = "No tasks due today."
+    except Exception as exc:
+        tasks_context = "(Could not load today's tasks)"
+        logger.warning("%sTasks context failed | %s", p, exc)
+
     profile = load_profile(chat_id)
     pending = get_pending_jobs()
     if pending:
@@ -750,6 +777,7 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         f"=== CONTEXT ===\n"
         f"Current date and time: {current_dt} (timezone: {TIMEZONE}).\n"
         f"{calendar_context}\n"
+        f"{tasks_context}\n"
         f"{scheduled_context}\n"
         f"{activity_context}\n"
         f"Automated daily jobs (all times in {TIMEZONE}):\n"
@@ -767,6 +795,8 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         "never ask the user for details you could retrieve with a tool call.\n"
         "Use the available tools to fulfil the user's request. "
         "Resolve relative dates (tomorrow, next Friday, etc.) to absolute YYYY-MM-DD. "
+        f"When the user asks to plan, schedule, or organise their day without specifying a date, always default to TODAY ({today_str}). "
+        "Schedule all tasks and activities on today's date unless the user explicitly states a different date. "
         "Use 24-hour HH:MM for times. "
         "If you need to find an event ID before acting on it, call list_events first. "
         "When creating events involving known contacts, auto-add their emails as attendees. "
@@ -813,6 +843,19 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         "Use delete_activity when the user says an activity was logged by mistake or asks to remove it. "
         "Use update_activity when the user wants to correct a field (status, name, notes, start_time, end_time, etc.). "
         "For both, use query_database first to find the record ID if needed.\n\n"
+        "=== DAY WRAP-UP ===\n"
+        "When the user says 'let's wrap up the day', 'wrap up', 'let's recap', 'how did today go', or any similar "
+        "end-of-day phrase, do the following:\n"
+        "1. Read today's conversation: use query_database to fetch today's messages "
+        f"(SELECT role, content, timestamp FROM messages WHERE chat_id = {chat_id} "
+        "AND timestamp > NOW() - INTERVAL '24 hours' ORDER BY timestamp ASC).\n"
+        "2. Look at today's calendar events and today's tasks — both are already listed in the context above.\n"
+        "3. Send ONE message that goes through each calendar event and each task due today (or overdue) "
+        "and asks the user about any that weren't clearly resolved in the conversation. "
+        "For calendar events: ask how it went. For tasks: ask whether it was completed. "
+        "Skip items already fully discussed. Group related items if it keeps things concise.\n"
+        "4. As the user replies, call log_activity for each completed/skipped/partial item reported, "
+        "and call update_task (status='completed') for tasks they confirm are done.\n\n"
         "=== CREATIVE THINKING ===\n"
         "When the user shares a problem, challenge, or goal, don't just acknowledge it — analyse it. "
         "Use search_memory and the profile to understand what has already been tried or is in place. "
