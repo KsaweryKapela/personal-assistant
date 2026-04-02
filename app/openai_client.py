@@ -554,19 +554,17 @@ _TOOLS = [
                 "type": "object",
                 "properties": {
                     "date": {"type": "string", "description": "The date being summarised, YYYY-MM-DD."},
-                    "wake_time": {"type": "string", "description": "Inferred wake time, HH:MM."},
-                    "sleep_time": {"type": "string", "description": "Inferred sleep/last-active time, HH:MM."},
-                    "sleep_duration_hours": {"type": "number", "description": "Hours of sleep (float)."},
                     "activities_completed": {"type": "integer"},
                     "activities_skipped": {"type": "integer"},
                     "activities_partial": {"type": "integer"},
                     "activities_total": {"type": "integer"},
                     "completion_rate_pct": {"type": "integer", "description": "0–100."},
                     "workout_done": {"type": "boolean"},
-                    "deep_work_minutes": {"type": "integer"},
                     "mood_score": {"type": "integer", "description": "1–10."},
                     "energy_score": {"type": "integer", "description": "1–10."},
                     "stress_score": {"type": "integer", "description": "1–10."},
+                    "gut_score": {"type": "integer", "description": "1–10 rating of gut/digestive wellbeing."},
+                    "relationship_score": {"type": "integer", "description": "1–10 rating of social/relationship quality for the day."},
                     "overall_score": {"type": "integer", "description": "1–10 holistic day rating."},
                     "highlights": {"type": "string", "description": "Key wins or good moments."},
                     "challenges": {"type": "string", "description": "What was hard or didn't go well."},
@@ -575,6 +573,7 @@ _TOOLS = [
                     "mood_description": {"type": "string", "description": "Free-text description of the user's mood and emotional state throughout the day."},
                     "stress_description": {"type": "string", "description": "Free-text description of stress levels, sources, and how they were handled."},
                     "gut_state": {"type": "string", "description": "What the user ate and how it made them feel (digestion, energy, wellbeing). Only fill if the user mentioned food or gut state."},
+                    "relationship_description": {"type": "string", "description": "Free-text description of social interactions, relationships, and connection quality for the day. Only fill if the user mentioned people or social context."},
                     "metadata": {"type": "object", "description": "Any extra stats that don't fit the schema."},
                 },
                 "required": ["date"],
@@ -590,11 +589,11 @@ _TOOLS = [
                 "Tables: activities (id, chat_id, timestamp, category, name, status, notes, metadata, start_time, end_time), "
                 "messages (id, chat_id, timestamp, role, content, message_type), "
                 "profile (chat_id, data, updated_at), "
-                "daily_summaries (id, chat_id, date, wake_time, sleep_time, sleep_duration_hours, "
+                "daily_summaries (id, chat_id, date, "
                 "activities_completed, activities_skipped, activities_partial, activities_total, "
-                "completion_rate_pct, workout_done, deep_work_minutes, mood_score, energy_score, "
-                "stress_score, overall_score, highlights, challenges, key_takeaways, summary, "
-                "mood_description, stress_description, gut_state, metadata, created_at). "
+                "completion_rate_pct, workout_done, mood_score, energy_score, stress_score, "
+                "gut_score, relationship_score, overall_score, highlights, challenges, key_takeaways, summary, "
+                "mood_description, stress_description, gut_state, relationship_description, metadata, created_at). "
                 "Use this when the user wants to inspect raw records."
             ),
             "parameters": {
