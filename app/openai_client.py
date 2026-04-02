@@ -90,16 +90,16 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "list_events",
-            "description": "List all calendar events for a given date.",
+            "description": "List all calendar events for a given date. Omit date to list today's events.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "date": {
                         "type": "string",
-                        "description": "Date in YYYY-MM-DD format.",
+                        "description": "Date in YYYY-MM-DD format. Omit to use today's date.",
                     }
                 },
-                "required": ["date"],
+                "required": [],
             },
         },
     },
@@ -803,7 +803,8 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         "never ask the user for details you could retrieve with a tool call.\n"
         "Use the available tools to fulfil the user's request. "
         "Resolve relative dates (tomorrow, next Friday, etc.) to absolute YYYY-MM-DD. "
-        f"When the user asks to plan, schedule, or organise their day without specifying a date, always default to TODAY ({today_str}). "
+        f"TODAY IS {today_str}. When the user says 'my day', 'today', 'schedule my day', or anything similar without specifying a date, "
+        f"ALWAYS use {today_str} — never tomorrow, even if the current time is late evening. "
         "Schedule all tasks and activities on today's date unless the user explicitly states a different date. "
         "Use 24-hour HH:MM for times. "
         "If you need to find an event ID before acting on it, call list_events first. "
