@@ -136,12 +136,15 @@ def _get_tasks_service():
     return build("tasks", "v1", credentials=_get_creds())
 
 
-def list_events(date: str) -> dict:
-    """List all events for a given date (YYYY-MM-DD)."""
+def list_events(date: str | None = None) -> dict:
+    """List all events for a given date (YYYY-MM-DD). Defaults to today."""
     t0 = time.monotonic()
     try:
         service = _get_service()
         tz = pytz.timezone(TIMEZONE)
+
+        if not date:
+            date = datetime.now(tz).strftime("%Y-%m-%d")
 
         day = datetime.strptime(date, "%Y-%m-%d")
         start = tz.localize(day.replace(hour=0, minute=0, second=0, microsecond=0))
