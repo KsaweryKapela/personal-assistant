@@ -753,7 +753,8 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         logger.warning("%sTasks context failed | %s", p, exc)
 
     profile = load_profile(chat_id)
-    pending = get_pending_jobs()
+    _system_job_names = {"morning-checkin", "daily-profile-review", "daily-activity-review", "daily-summary"}
+    pending = [j for j in get_pending_jobs() if j.get("name") not in _system_job_names]
     if pending:
         pending_lines = "\n".join(
             f"  [id={j['id']}] [{j.get('name', 'unnamed')}] {j['send_at']} — {j['message']}"
