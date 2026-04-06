@@ -817,26 +817,17 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         logger.warning("%sActivity context failed | %s", p, exc)
 
     # ---- System prompt construction ----
+    # Static instructions come FIRST so the prefix is stable across all requests within the same day,
+    # maximising OpenAI prompt-cache hits (cache busts once per day when today_str changes).
+    # Dynamic profile + context are appended at the END so they don't pollute the cached prefix.
     system_prompt = (
-        f"You are a personal assistant for the user described below.\n\n"
-        f"=== USER PROFILE ===\n{json.dumps(profile, ensure_ascii=False)}\n\n"
-        f"=== CONTEXT ===\n"
-        f"Current date and time: {current_dt} (timezone: {TIMEZONE}).\n"
-        f"{calendar_context}\n"
-        f"{tasks_context}\n"
-        f"{scheduled_context}\n"
-        f"{activity_context}\n"
-        f"Automated daily jobs (all times in {TIMEZONE}):\n"
-        f"- {DAILY_MORNING_CHECK_TIME}: morning check-in — asks wake time, mood, energy, and today's plans. "
-        f"Saves wake_time to daily_summaries and logs a 'wake up' activity.\n"
-        f"- {DAILY_PROFILE_REVIEW_TIME}: profile review — reads today's messages, updates the user profile with new insights.\n"
-        f"- {DAILY_ACTIVITY_REVIEW_TIME}: activity review — cross-references logged activities against the conversation, fixes errors.\n"
-        f"- {DAILY_SUMMARY_TIME}: daily summary — computes all day stats, saves to daily_summaries, sends a report.\n\n"
+        "You are a personal assistant. "
+        "Your instructions are below; the user profile and current context are appended at the end.\n\n"
         "=== INSTRUCTIONS ===\n"
         "IMPORTANT: Only act on the LAST user message. Conversation history is provided for context only — "
         "never repeat, re-execute, or duplicate any action that was already performed in a previous turn. "
         "If you already created an event, logged an activity, or scheduled a message in an earlier turn, do not do it again.\n"
-        "Context injected above is intentionally minimal to preserve the context window. "
+        "Context injected at the end is intentionally minimal to preserve the context window. "
         "Use search_memory and query_database proactively whenever you need historical information — "
         "never ask the user for details you could retrieve with a tool call.\n"
         "Use the available tools to fulfil the user's request. "
@@ -899,7 +890,7 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         "1. Read today's conversation: use query_database to fetch today's messages "
         f"(SELECT role, content, timestamp FROM messages WHERE chat_id = {chat_id} "
         "AND timestamp > NOW() - INTERVAL '24 hours' ORDER BY timestamp ASC).\n"
-        "2. Look at today's calendar events and today's tasks — both are already listed in the context above.\n"
+        "2. Look at today's calendar events and today's tasks — both are listed in the context at the end.\n"
         "3. Send ONE message that goes through ALL of the following and asks about each item not already "
         "clearly covered in the conversation:\n"
         "   - Every calendar event today: ask how it went.\n"
@@ -919,7 +910,21 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         "If you need more context, use your tools to find it — never ask the user. "
         "Be direct and decisive. Keep messages short. No filler phrases. "
         "Do not use any markdown formatting — no **bold**, no _italic_, no headers, no bullet dashes, no backticks. "
-        "Plain text only. Telegram does not render markdown and it will appear as raw symbols."
+        "Plain text only. Telegram does not render markdown and it will appear as raw symbols.\n\n"
+        f"Automated daily jobs (all times in {TIMEZONE}):\n"
+        f"- {DAILY_MORNING_CHECK_TIME}: morning check-in — asks wake time, mood, energy, and today's plans. "
+        f"Saves wake_time to daily_summaries and logs a 'wake up' activity.\n"
+        f"- {DAILY_PROFILE_REVIEW_TIME}: profile review — reads today's messages, updates the user profile with new insights.\n"
+        f"- {DAILY_ACTIVITY_REVIEW_TIME}: activity review — cross-references logged activities against the conversation, fixes errors.\n"
+        f"- {DAILY_SUMMARY_TIME}: daily summary — computes all day stats, saves to daily_summaries, sends a report.\n\n"
+        # Dynamic section — appended last so changes here don't bust the cached prefix above
+        f"=== USER PROFILE ===\n{json.dumps(profile, ensure_ascii=False)}\n\n"
+        f"=== CONTEXT ===\n"
+        f"Current date and time: {current_dt} (timezone: {TIMEZONE}).\n"
+        f"{calendar_context}\n"
+        f"{tasks_context}\n"
+        f"{scheduled_context}\n"
+        f"{activity_context}"
     )
 
     if message_type == "scheduled":
@@ -1006,9 +1011,10 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
 
         usage = response.usage
         if usage:
+            cached = getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", 0) or 0
             logger.info(
-                "%sTokens | iter=%d | prompt=%d completion=%d total=%d",
-                p, iteration, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
+                "%sTokens | iter=%d | prompt=%d (cached=%d) completion=%d total=%d",
+                p, iteration, usage.prompt_tokens, cached, usage.completion_tokens, usage.total_tokens,
             )
 
         msg = response.choices[0].message
