@@ -569,3 +569,53 @@ def create_task(
         elapsed = time.monotonic() - t0
         logger.error("create_task | unexpected error | title=%r | duration=%.2fs | error=%s", title, elapsed, exc)
         return {"ok": False, "error": str(exc)}
+
+
+def create_task_series(
+    title: str,
+    days: int,
+    start_date: str | None = None,
+    notes: str | None = None,
+) -> dict:
+    """Create a series of identical daily tasks for `days` consecutive days."""
+    tz = pytz.timezone(TIMEZONE)
+    series_id = os.urandom(4).hex()
+    base = (
+        datetime.strptime(start_date, "%Y-%m-%d")
+        if start_date
+        else datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    )
+    marker = f"[series:{series_id}]"
+    task_notes = f"{notes}\n{marker}" if notes else marker
+
+    created = []
+    for i in range(days):
+        due = (base + timedelta(days=i)).strftime("%Y-%m-%d")
+        result = create_task(title=title, notes=task_notes, due_date=due)
+        if result.get("ok"):
+            created.append(result["task_id"])
+        else:
+            logger.warning("create_task_series | task %d failed | error=%s", i, result.get("error"))
+
+    logger.info("create_task_series | series_id=%s | created=%d/%d", series_id, len(created), days)
+    return {"ok": True, "series_id": series_id, "tasks_created": len(created), "task_ids": created}
+
+
+def delete_task_series(series_id: str) -> dict:
+    """Delete all tasks belonging to a series by its series_id."""
+    marker = f"[series:{series_id}]"
+    result = list_tasks()
+    if not result.get("ok"):
+        return result
+
+    matching = [t for t in result.get("tasks", []) if marker in t.get("notes", "")]
+    deleted = 0
+    for task in matching:
+        r = delete_task(task["task_id"])
+        if r.get("ok"):
+            deleted += 1
+        else:
+            logger.warning("delete_task_series | failed to delete %s | error=%s", task["task_id"], r.get("error"))
+
+    logger.info("delete_task_series | series_id=%s | deleted=%d/%d", series_id, deleted, len(matching))
+    return {"ok": True, "series_id": series_id, "deleted": deleted}

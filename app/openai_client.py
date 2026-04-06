@@ -8,7 +8,7 @@ import pytz
 import requests as http_requests
 from openai import OpenAI
 
-from app.calendar_client import add_attendees, create_event, create_task, delete_event, delete_task, list_events, list_tasks, update_event, update_task
+from app.calendar_client import add_attendees, create_event, create_task, create_task_series, delete_event, delete_task, delete_task_series, list_events, list_tasks, update_event, update_task
 from app.config import (
     DAILY_ACTIVITY_REVIEW_TIME,
     DAILY_MORNING_CHECK_TIME,
@@ -296,6 +296,41 @@ _TOOLS = [
                     "task_id": {"type": "string", "description": "The Google Tasks task ID to delete."},
                 },
                 "required": ["task_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_task_series",
+            "description": (
+                "Create a series of identical daily tasks repeating for a number of consecutive days. "
+                "Use when the user wants a recurring to-do (e.g. 'meditate every day for 10 days'). "
+                "Returns a series_id — save it, as it's the only way to delete the whole series later."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Task title (same for every task in the series)."},
+                    "days": {"type": "integer", "description": "Number of consecutive days to create the task for."},
+                    "start_date": {"type": "string", "description": "Start date in YYYY-MM-DD format. Defaults to today if omitted."},
+                    "notes": {"type": "string", "description": "Optional notes to attach to each task."},
+                },
+                "required": ["title", "days"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_task_series",
+            "description": "Delete all tasks belonging to a recurring series by its series_id.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "series_id": {"type": "string", "description": "The series_id returned by create_task_series."},
+                },
+                "required": ["series_id"],
             },
         },
     },
@@ -676,8 +711,10 @@ _TOOL_DISPATCH_BASE = {
     "list_tasks": list_tasks,
     "create_event": create_event,
     "create_task": create_task,
+    "create_task_series": create_task_series,
     "update_task": update_task,
     "delete_task": delete_task,
+    "delete_task_series": delete_task_series,
     "delete_event": delete_event,
     "update_event": update_event,
     "add_attendees": add_attendees,
@@ -813,6 +850,9 @@ def run_agent(user_message: str, chat_id: int = 0, request_id: str = "", message
         "When creating calendar events, always set a color that matches the event type "
         "(workout→flamingo, work/meeting→blueberry, meal→banana, social→grape, health→tomato, personal/habit→sage, travel→peacock). "
         "For time-specific activities, use create_event. For to-dos without a fixed time, use create_task. "
+        "When the user wants the same task to repeat daily for multiple days, use create_task_series instead of calling create_task repeatedly. "
+        "After calling create_task_series, always tell the user the series_id so they can delete the whole series later. "
+        "To cancel/delete a recurring task series, use delete_task_series with the series_id. "
         "Before creating a task, always call list_tasks to check for duplicates — do not create a task that already exists. "
         "RECURRING EVENTS: whenever the user says 'every day', 'every Monday', 'weekdays', 'daily', 'weekly', etc., "
         "you MUST use create_event with the appropriate frequency param — NEVER create multiple separate single events. "
