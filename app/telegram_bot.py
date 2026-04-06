@@ -7,6 +7,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from app.assistant import process_message
 from app.config import TELEGRAM_BOT_TOKEN
+from app.utils import send_telegram
 from app.voice import transcribe
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ async def _handle_message(update: Update, _context: ContextTypes.DEFAULT_TYPE) -
         logger.error("MSG ERROR | chat_id=%s | %s", chat_id, exc, exc_info=True)
         reply = "Something went wrong on my end. Please try again."
 
-    await update.message.reply_text(reply)
+    await asyncio.to_thread(send_telegram, chat_id, reply)
     logger.info("MSG OUT | chat_id=%s | %.2fs | %r", chat_id, time.monotonic() - t0, reply[:300])
 
 
@@ -49,7 +50,7 @@ async def _handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error("VOICE ERROR | chat_id=%s | %s", chat_id, exc, exc_info=True)
         reply = "Sorry, I couldn't process that voice message."
 
-    await update.message.reply_text(reply)
+    await asyncio.to_thread(send_telegram, chat_id, reply)
     logger.info("VOICE OUT | chat_id=%s | %.2fs | %r", chat_id, time.monotonic() - t0, reply[:300])
 
 
