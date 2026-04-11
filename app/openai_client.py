@@ -9,6 +9,7 @@ import requests as http_requests
 from openai import OpenAI
 
 from app.calendar_client import add_attendees, create_event, create_task, create_task_series, delete_event, delete_task, delete_task_series, list_events, list_tasks, update_event, update_task
+from app.oura_client import get_daily_oura_data
 from app.config import (
     DAILY_ACTIVITY_REVIEW_TIME,
     DAILY_MORNING_CHECK_TIME,
@@ -643,6 +644,29 @@ _TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_oura_data",
+            "description": (
+                "Fetch Oura Ring health data for a given date. "
+                "Returns sleep score, sleep stages (total/deep/REM/light minutes), sleep efficiency, "
+                "HRV, resting heart rate, wake time, readiness score, steps, active and total calories, "
+                "meditation session count and total minutes, SpO2, and workouts. "
+                "Use this during the daily summary to include objective health metrics."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "description": "Date in YYYY-MM-DD format. Omit to use today's date.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 def _build_update_user_profile(chat_id: int):
@@ -723,6 +747,7 @@ _TOOL_DISPATCH_BASE = {
         {"id": j["id"], "name": j.get("name", "unnamed"), "send_at": j["send_at"], "repeat_daily_at": j.get("repeat_daily_at")}
         for j in get_pending_jobs()
     ]},
+    "get_oura_data": get_daily_oura_data,
 }
 
 

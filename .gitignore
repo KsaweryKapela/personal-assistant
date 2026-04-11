@@ -2,6 +2,7 @@
 credentials.json
 g_cal_credentials.json
 token.json
+oura_token.json
 __pycache__/
 *.pyc
 .venv/
