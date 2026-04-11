@@ -19,7 +19,6 @@ from telegram import Update
 
 from app.config import (
     DAILY_ACTIVITY_REVIEW_TIME,
-    DAILY_MORNING_CHECK_TIME,
     DAILY_PROFILE_REVIEW_TIME,
     DAILY_SUMMARY_TIME,
     LOG_BOT_TOKEN,
@@ -30,7 +29,7 @@ from app.config import (
     TIMEZONE,
     WEBHOOK_URL,
 )
-from app.scheduler import add_recurring_daily_job, start as start_scheduler
+from app.scheduler import add_recurring_daily_job, register_morning_watcher, start as start_scheduler
 from app.telegram_bot import build_app
 
 logging.basicConfig(
@@ -109,30 +108,8 @@ def main() -> None:
     start_scheduler()
 
     if TELEGRAM_CHAT_ID:
-        add_recurring_daily_job(
-            chat_id=TELEGRAM_CHAT_ID,
-            time_str=DAILY_MORNING_CHECK_TIME,
-            name="morning-checkin",
-            message=(
-                f"[MORNING CHECK-IN — AUTOMATED TASK]\n"
-                f"Step 1: Load the user profile using get_user_profile and read their morning routine "
-                f"(look in lifestyle, health, or any relevant section).\n"
-                f"Step 2: Send the user a single warm, brief morning message that:\n"
-                f"  a. Greets them and reminds them of their morning routine (list the specific habits/steps "
-                f"     from their profile — e.g. cold shower, meditation, journaling, etc.).\n"
-                f"  b. Asks three things:\n"
-                f"     1. Did they complete their morning routine? (reference the specific items)\n"
-                f"     2. How are they feeling — mood and energy level?\n"
-                f"     3. What are their main plans or priorities for today?\n"
-                f"Keep it concise — one message. "
-                f"After the user replies, do the following:\n"
-                f"- Call save_daily_summary with today's date.\n"
-                f"- Call log_activity with category='habit', name='morning routine', "
-                f"status='completed' or 'skipped' based on what they said.\n"
-                f"- If they share mood or energy info, save it to their profile using update_user_profile."
-            ),
-        )
-        logger.info("Morning check-in job registered | chat_id=%s | time=%s", TELEGRAM_CHAT_ID, DAILY_MORNING_CHECK_TIME)
+        register_morning_watcher(TELEGRAM_CHAT_ID)
+        logger.info("Morning watcher registered | chat_id=%s | starts=04:00 | fallback=09:00", TELEGRAM_CHAT_ID)
         add_recurring_daily_job(
             chat_id=TELEGRAM_CHAT_ID,
             time_str=DAILY_PROFILE_REVIEW_TIME,

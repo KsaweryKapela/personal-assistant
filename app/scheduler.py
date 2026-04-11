@@ -70,6 +70,71 @@ def add_job(chat_id: int, message: str, send_at: datetime, context: str = "", na
     return {"ok": True, "job_id": job["id"], "send_at": job["send_at"]}
 
 
+def add_watcher_poll_job(chat_id: int, send_at: datetime) -> None:
+    """Schedule a one-time morning-watcher poll (no daily repeat)."""
+    job = {
+        "id": str(uuid.uuid4()),
+        "chat_id": chat_id,
+        "name": "morning-watcher-poll",
+        "message": "",
+        "watcher_type": "morning",
+        "send_at": send_at.isoformat(),
+        "context": "",
+    }
+    with _lock:
+        _jobs.append(job)
+        _save_jobs()
+    logger.info("add_watcher_poll_job | scheduled | chat_id=%s | send_at=%s", chat_id, send_at.isoformat())
+
+
+def register_morning_watcher(chat_id: int, start_time: str = "04:00") -> None:
+    """
+    Register the daily morning wake-up watcher. Idempotent on restart.
+    Replaces the old fixed-time morning-checkin job if one exists.
+    """
+    import pytz
+    from datetime import timedelta
+    from app.config import TIMEZONE
+
+    with _lock:
+        # Migrate: remove old fixed morning-checkin if present
+        old = [j for j in _jobs if j.get("name") == "morning-checkin"]
+        if old:
+            for j in old:
+                _jobs.remove(j)
+            logger.info("register_morning_watcher | removed legacy morning-checkin job(s)")
+
+        if any(j.get("name") == "morning-watcher" for j in _jobs):
+            logger.info("register_morning_watcher | already registered, skipping")
+            return
+
+    tz = pytz.timezone(TIMEZONE)
+    h, m = map(int, start_time.split(":"))
+    now = datetime.now(tz)
+    next_run = tz.localize(datetime(now.year, now.month, now.day, h, m, 0))
+    if next_run <= now:
+        from datetime import timedelta as _td
+        if (now - next_run) <= _td(minutes=10):
+            next_run = now + _td(minutes=1)
+        else:
+            next_run = next_run + timedelta(days=1)
+
+    job = {
+        "id": str(uuid.uuid4()),
+        "chat_id": chat_id,
+        "name": "morning-watcher",
+        "message": "",
+        "watcher_type": "morning",
+        "send_at": next_run.isoformat(),
+        "context": "",
+        "repeat_daily_at": start_time,
+    }
+    with _lock:
+        _jobs.append(job)
+        _save_jobs()
+    logger.info("register_morning_watcher | registered | first_run=%s", next_run.isoformat())
+
+
 def add_recurring_daily_job(chat_id: int, message: str, time_str: str, name: str) -> None:
     """Register a daily recurring job. No-op if a job with this name already exists (idempotent on restart)."""
     with _lock:
@@ -147,25 +212,33 @@ def _reschedule_daily(job: dict) -> None:
 
 
 def _run_job(job: dict) -> None:
-    """Prompt the AI with the scheduled message and send its response to the user."""
+    """Execute a scheduled job — either a watcher poll or an AI-prompted message."""
     from app.assistant import process_message  # lazy import to avoid circular dependency
 
     chat_id = job["chat_id"]
-    prompt = job["message"]
     job_id = job["id"]
-    logger.info(
-        "Scheduler job | prompting AI | job_id=%s | chat_id=%s | prompt=%r",
-        job_id, chat_id, prompt[:80],
-    )
+
     try:
+        if job.get("watcher_type") == "morning":
+            from app.morning_watcher import run_morning_watcher
+            logger.info("Scheduler job | morning watcher | job_id=%s | name=%r", job_id, job.get("name"))
+            run_morning_watcher(job)
+            return  # finally still runs for repeat_daily_at rescheduling
+
+        prompt = job["message"]
+        logger.info(
+            "Scheduler job | prompting AI | job_id=%s | chat_id=%s | prompt=%r",
+            job_id, chat_id, prompt[:80],
+        )
         reply = process_message(prompt, chat_id=chat_id, message_type="scheduled")
         _send(chat_id, reply, job_id)
     except Exception as exc:
         logger.error(
-            "Scheduler job | AI error | job_id=%s | chat_id=%s | error=%s",
+            "Scheduler job | error | job_id=%s | chat_id=%s | error=%s",
             job_id, chat_id, exc, exc_info=True,
         )
-        _send(chat_id, f"[Scheduled job '{job.get('name')}' failed: {exc}]", job_id)
+        if not job.get("watcher_type"):
+            _send(chat_id, f"[Scheduled job '{job.get('name')}' failed: {exc}]", job_id)
     finally:
         if job.get("repeat_daily_at"):
             _reschedule_daily(job)
@@ -210,7 +283,11 @@ def get_pending_jobs() -> list[dict]:
 
 
 # Names of recurring system jobs that cannot be cancelled by the user
-_PROTECTED_JOB_NAMES = {"morning-checkin", "daily-profile-review", "daily-activity-review", "daily-summary"}
+_PROTECTED_JOB_NAMES = {
+    "morning-watcher", "morning-watcher-poll",
+    "morning-checkin-oura", "morning-checkin-fallback",
+    "daily-profile-review", "daily-activity-review", "daily-summary",
+}
 
 
 def remove_job(job_id: str) -> dict:
