@@ -49,7 +49,10 @@ def _get(endpoint: str, params: dict) -> dict | None:
     refresh_token = tokens.get("refresh_token")
 
     if not access_token:
-        logger.warning("No Oura access token found in %s", OURA_TOKEN_FILE)
+        logger.error(
+            "Oura: no access token in %s — make sure OURA_TOKEN_JSON is set and start.sh writes it to disk",
+            OURA_TOKEN_FILE,
+        )
         return None
 
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -182,8 +185,13 @@ def get_daily_oura_data(date: str | None = None) -> dict:
                 for w in day_workouts
             ]
 
-        result["available"] = True
-        logger.info("Oura data fetched for %s | keys=%s", date, [k for k, v in result.items() if v is not None and k not in ("date", "available")])
+        data_keys = [k for k, v in result.items() if v is not None and k not in ("date", "available")]
+        if data_keys:
+            result["available"] = True
+            logger.info("Oura data fetched for %s | fields=%s", date, data_keys)
+        else:
+            result["error"] = "no data returned — token may be missing or Oura hasn't synced yet"
+            logger.warning("Oura: no data fields populated for %s — token file present: %s", date, os.path.exists(OURA_TOKEN_FILE))
 
     except Exception as exc:
         logger.error("Oura data fetch error for %s: %s", date, exc, exc_info=True)

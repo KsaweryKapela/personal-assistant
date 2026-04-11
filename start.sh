@@ -10,4 +10,8 @@ if [ -n "$GOOGLE_TOKEN_JSON" ]; then
     echo "$GOOGLE_TOKEN_JSON" > "${GOOGLE_TOKEN_FILE:-token.json}"
 fi
 
+if [ -n "$OURA_TOKEN_JSON" ]; then
+    echo "$OURA_TOKEN_JSON" > "${OURA_TOKEN_FILE:-oura_token.json}"
+fi
+
 exec python -m app.main
